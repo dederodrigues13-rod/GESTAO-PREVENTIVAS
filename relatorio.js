@@ -7,7 +7,9 @@
 // Nome do arquivo: "VTIA 07 - 2026-12-02 - Preventiva.pdf" (ordena por
 // máquina e data dentro da pasta).
 // =====================================================================
-import { SECOES, ORDEM_PAPEL } from './dados.js';
+import { formulario } from './dados.js';
+import qrcode from 'qrcode-generator';
+import { urlFoto } from './store.js';
 import { esc } from './ui.js';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -17,28 +19,48 @@ const cb = (on) => `<span class="cb">${on ? X : ''}</span>`;
 const caixas = (...v) => v.map((x) => `<span class="cx">${esc(x)}</span>`).join('');
 export const ASSINANTES = [['manutentor', 'MANUTENTOR'], ['supervisor', 'SUPERVISOR DA ÁREA'], ['gerente', 'GERENTE DE MANUTENÇÃO']];
 
+export function qrSvg(texto) {
+  const gerar = typeof qrcode === 'function' ? qrcode : qrcode.default || qrcode.qrcode;
+  const qr = gerar(0, 'M'); qr.addData(texto); qr.make();
+  const n = qr.getModuleCount(), mg = 1; let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c + mg} ${r + mg}h1v1h-1z`;
+  return `<svg viewBox="0 0 ${n + mg * 2} ${n + mg * 2}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+export const urlVerificacao = (r) => `${location.origin}/#v-${r.id}`;
+// fotos do relatório: { caminho: url } (carrega antes de montar as folhas)
+export async function carregarFotosRel(r) {
+  const paths = Object.values(r.respostas || {}).flatMap((v) => v.fotos || []);
+  const pares = await Promise.all(paths.map((p) => urlFoto(p).then((u) => [p, u]).catch(() => [p, null])));
+  return Object.fromEntries(pares.filter(([, u]) => u));
+}
+
 export const nomeArquivo = (r) => `${r.codigo} - ${partes(r.inicio).iso} - Preventiva.pdf`;
 
 function secao(k, r) {
-  const s = SECOES[k], usada = r.secoes.includes(k);
+  const s = formulario(r.rev).secoes[k], usada = r.secoes.includes(k);
   return `<section class="fr-sec"><div class="fr-sec-t"><span>${s.papel}</span><i>OK</i><i>NOK</i><i>N.A</i></div>
     ${s.itens.map((t, i) => { const v = usada ? (r.respostas[`${k}.${i}`]?.v || '') : ''; return `<div class="fr-it"><span><em>${i + 1}</em>${esc(t)}</span>${cb(v === 'ok')}${cb(v === 'nok')}${cb(v === 'na')}</div>`; }).join('')}
   </section>`;
 }
 
-export function folhasA4(r, m) {
+export function folhasA4(r, m, fotosUrl = {}) {
+  const F = formulario(r.rev), SECOES = F.secoes, ORDEM_PAPEL = F.ordem;
   const ini = partes(r.inicio), fim = r.fim ? partes(r.fim) : null;
   const min = r.fim ? Math.max(0, Math.round((r.fim - r.inicio) / 60000)) : null;
   const cab = `<header class="fr-cab"><div class="fr-logo"><img src="logo-vetore.png" alt="Vetore" /></div><div class="fr-tit">RELATÓRIO DE MANUTENÇÃO PREVENTIVA</div>
-    <table class="fr-rev"><tr><th>REV</th><th>FR. 06.08.002 - A</th></tr><tr><td>5</td><td>16/09/2025</td></tr></table></header>`;
-  const rod = (n) => `<footer class="fr-rod">Gestão de Preventivas · ${esc(r.codigo)} · preventiva de ${r.ciclo.slice(5)}/${r.ciclo.slice(0, 4)}${r.dataPrevista ? ` (programada ${r.dataPrevista.split('-').reverse().join('/')})` : ''}${r.antecipada ? ' · antecipada' : ''} · reg. ${esc(r.id)} · página ${n}/2</footer>`;
+    <table class="fr-rev"><tr><th>REV</th><th>${F.codigo}</th></tr><tr><td>${F.rev}</td><td>${F.data}</td></tr></table></header>`;
+  const rod = (n) => `<footer class="fr-rod">Gestão de Preventivas · ${esc(r.codigo)} · preventiva de ${r.ciclo.slice(5)}/${r.ciclo.slice(0, 4)}${r.dataPrevista ? ` (programada ${r.dataPrevista.split('-').reverse().join('/')})` : ''}${r.antecipada ? ' · antecipada' : ''} · reg. ${esc(r.id)} · página ${n}/${total}</footer>`;
   const plano = r.plano.map((p) => ({ item: p.key ? `${SECOES[p.key.split('.')[0]].titulo.split(' · ')[0]} ${+p.key.split('.')[1] + 1}` : p.item, acao: p.acao, resp: p.resp, data: p.prazo ? p.prazo.split('-').reverse().join('/') : '' }));
-  while (plano.length < 8) plano.push({ item: '', acao: '', resp: '', data: '' });
+  while (plano.length < (r.selo ? 6 : 8)) plano.push({ item: '', acao: '', resp: '', data: '' });
   const achados = Object.entries(r.respostas).filter(([k, v]) => v.v === 'nok' && v.obs && r.secoes.includes(k.split('.')[0]))
     .map(([k, v]) => `${SECOES[k.split('.')[0]].titulo.split(' · ')[0]} ${+k.split('.')[1] + 1}: ${v.obs}`);
   const obs = ['LIMPEZA DO TANQUE DE ÓLEO DEVE SER REALIZADA ANUALMENTE', ...achados, ...(r.obs ? r.obs.split('\n') : [])];
   while (obs.length < 4) obs.push('');
   const pag1 = ORDEM_PAPEL.slice(0, 4), pag2 = ORDEM_PAPEL.slice(4);
+  const fotos = Object.entries(r.respostas).filter(([k]) => r.secoes.includes(k.split('.')[0])).flatMap(([k, v]) => (v.fotos || []).filter((p) => fotosUrl[p])
+    .map((p) => ({ url: fotosUrl[p], leg: `${SECOES[k.split('.')[0]].titulo.split(' · ')[0]} ${+k.split('.')[1] + 1}${v.obs ? ' · ' + v.obs : ''}` })));
+  const grupos = []; for (let i = 0; i < fotos.length; i += 6) grupos.push(fotos.slice(i, i + 6));
+  const total = 2 + grupos.length;
   return `
   <div class="a4"><div class="a4-in">${cab}
     <div class="fr-dados"><b class="fr-h">DADOS</b>
@@ -55,9 +77,14 @@ export function folhasA4(r, m) {
     <section class="fr-fech"><b class="fr-h">FECHAMENTO</b>
       <div class="fr-lin"><span class="fr-r">DATA</span>${fim ? caixas(fim.d, fim.m, fim.a) : caixas('', '', '')}<span class="fr-r fr-r2">HORA</span>${fim ? caixas(fim.h) : caixas('')}<b class="dp">:</b>${fim ? caixas(fim.mi) : caixas('')}
         <span class="fr-r fr-r2">TEMPO TOTAL GASTO</span>${min != null ? caixas(pad(Math.floor(min / 60))) : caixas('')}<b class="dp">:</b>${min != null ? caixas(pad(min % 60)) : caixas('')}</div>
+      ${r.selo ? `<div class="fr-selo"><div class="fr-selo-qr">${qrSvg(urlVerificacao(r))}</div><div><b>SELO DE AUTENTICIDADE</b><span>${esc(r.selo.slice(0, 8).toUpperCase())}-${esc(r.selo.slice(8, 16).toUpperCase())}</span><small>Aponte a câmera para o QR ou acesse ${esc(location.host)}/#v-${esc(r.id)} para conferir se este relatório é o original e não foi alterado.</small></div></div>` : ''}
       <div class="fr-ass">${ASSINANTES.map(([k, rot]) => { const a = r[k]; return `<figure>${a ? `<img src="${a.ass}" alt="Assinatura" />` : '<div class="fr-ass-v"></div>'}<figcaption><b>${rot}</b>${a ? `${esc(a.nome)} · ${partes(a.em).d}/${partes(a.em).m}/${partes(a.em).a} ${partes(a.em).h}:${partes(a.em).mi}` : '&nbsp;'}</figcaption></figure>`; }).join('')}</div>
     </section>
-  </div>${rod(2)}</div>`;
+  </div>${rod(2)}</div>
+  ${grupos.map((g, gi) => `<div class="a4"><div class="a4-in">${cab}
+    <b class="fr-h">ANEXO FOTOGRÁFICO${grupos.length > 1 ? ` (${gi + 1}/${grupos.length})` : ''}</b>
+    <div class="fr-fotos">${g.map((f) => `<figure><img src="${f.url}" alt="Foto" /><figcaption>${esc(f.leg)}</figcaption></figure>`).join('')}</div>
+  </div>${rod(3 + gi)}</div>`).join('')}`;
 }
 
 // ---------- PDF ----------
@@ -69,7 +96,8 @@ export async function gerarPDF(r, m) {
     carregar('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'html2canvas'),
     carregar('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'jspdf'),
   ]);
-  const box = document.createElement('div'); box.className = 'a4-render'; box.innerHTML = folhasA4(r, m); document.body.append(box);
+  const fotosUrl = await carregarFotosRel(r);
+  const box = document.createElement('div'); box.className = 'a4-render'; box.innerHTML = folhasA4(r, m, fotosUrl); document.body.append(box);
   try {
     await Promise.all([...box.querySelectorAll('img')].map((i) => i.complete ? 0 : new Promise((ok) => { i.onload = i.onerror = ok; })));
     try { await document.fonts?.ready; } catch { /* segue */ }

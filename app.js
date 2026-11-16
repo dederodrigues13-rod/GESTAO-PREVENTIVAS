@@ -16,6 +16,8 @@ import { instalarApp, estaInstalado } from './pwa.js';
 import { EMAIL_DOMINIO } from './config.js';
 import { esc, ic, dataBR, diaMes, semana, quando, abrirModal, toast, dataHoraBR, duracao, paraData } from './ui.js';
 import { telaFormulario, telaEnviado, telaRelatorio, confirmarExclusao } from './form.js';
+import { telaAcoes, telaHistorico, telaIndicadores, telaAvisos, telaVerificacao, stAcao } from './telas.js';
+import { acoes } from './store.js';
 
 const URL_APP = location.origin + '/';
 const app = document.getElementById('app');
@@ -31,18 +33,20 @@ const pill = (st) => `<span class="pill" style="--c:${ST[st].cor}">${ST[st].nome
 // ---------- casca ----------
 const ABAS = [
   ['painel', 'Painel', 'painel'], ['calendario', 'Calendário', 'cal'], ['layout', 'Layout 3D', 'cubo'],
-  ['registros', 'Registros', 'lista'], ['feriados', 'Feriados', 'cal', true], ['etiquetas', 'Etiquetas QR', 'qr', true],
+  ['registros', 'Registros', 'lista'], ['acoes', 'Plano de ação', 'alvo'], ['indicadores', 'Indicadores', 'grafico', true],
+  ['feriados', 'Feriados', 'cal', true], ['avisos', 'Avisos', 'sino', true], ['etiquetas', 'Etiquetas QR', 'qr', true],
 ];
-const TITULOS = { painel: 'Painel', calendario: 'Calendário', layout: 'Layout 3D', registros: 'Registros', feriados: 'Feriados', etiquetas: 'Etiquetas QR' };
+const TITULOS = { painel: 'Painel', calendario: 'Calendário', layout: 'Layout 3D', registros: 'Registros', acoes: 'Plano de ação', indicadores: 'Indicadores', feriados: 'Feriados', avisos: 'Avisos', etiquetas: 'Etiquetas QR' };
 const menuFixo = () => pref('prev-menu-fixo') === '1';
 const dataExtenso = () => { const t = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); return t.charAt(0).toUpperCase() + t.slice(1); };
 // Mesmo layout do Gestão de Fluidos: menu lateral (recolhido em ícones, abre ao passar o
 // cursor, ou fixo — lembrado no aparelho) e cabeçalho com o banner da Vetore.
 function casca(rota) {
   const base = rota.startsWith('layout') ? 'layout' : rota.startsWith('cal') || rota === 'ano' ? 'calendario' : rota;
-  const titulo = rota.startsWith('m-') ? 'Formulário' : rota.startsWith('r-') ? 'Relatório' : TITULOS[base] || 'Painel';
+  const titulo = rota.startsWith('m-') ? 'Formulário' : rota.startsWith('r-') ? 'Relatório' : rota.startsWith('h-') ? 'Histórico' : TITULOS[base] || 'Painel';
   const pend = registros().filter((r) => r.status === minhaEtapa()).length;
-  const links = ABAS.filter((x) => !x[3] || gestao()).map(([h, n, i]) => `<a href="#${h}" class="${base === h ? 'active' : ''}" title="${n}">${ic(i)}<span>${n}</span>${h === 'registros' && pend ? `<b class="badge">${pend}</b>` : ''}</a>`).join('');
+  const venc = acoes().filter((a) => stAcao(a) === 'vencida').length;
+  const links = ABAS.filter((x) => !x[3] || gestao()).map(([h, n, i]) => `<a href="#${h}" class="${base === h ? 'active' : ''}" title="${n}">${ic(i)}<span>${n}</span>${h === 'registros' && pend ? `<b class="badge">${pend}</b>` : ''}${h === 'acoes' && venc ? `<b class="badge badge-red">${venc}</b>` : ''}</a>`).join('');
   app.innerHTML = `
   <div class="shell ${menuFixo() ? 'fixo' : 'recolhido'}">
     <aside class="side" aria-label="Menu">
@@ -90,7 +94,7 @@ function fichaHtml(codigo) {
       ${linha('Última feita', u ? `${dataBR(u.reg.fim ? new Date(u.reg.fim).toISOString().slice(0, 10) : u.data)} · ${esc(u.reg.manutentor.nome)}` : 'nenhuma no sistema')}
       ${linha('Meses', { A: 'jan · abr · jul · out', B: 'fev · mai · ago · nov', C: 'mar · jun · set · dez' }[m.janela])}
     </div>
-    <div class="f-btns"><a class="btn btn-pri btn-sm" href="#m-${m.slug}">Abrir formulário</a>
+    <div class="f-btns"><a class="btn btn-pri btn-sm" href="#m-${m.slug}">Abrir formulário</a><a class="btn btn-sec btn-sm" href="#h-${m.slug}">${ic('historico')} Histórico</a>
       ${s.aguardando ? `<a class="btn btn-sec btn-sm" href="#r-${s.aguardando.reg.id}">Ver relatório</a>` : ''}</div>`;
 }
 
@@ -155,6 +159,7 @@ function painel(el) {
       <div class="pilha">
         ${minhas.length ? `<section class="bloco destaque-azul"><h2>Para você assinar</h2><ul class="agenda">${minhas.map((i) => `<li><a class="ag ag-2" href="#r-${i.reg.id}"><span class="ag-maq"><b>${esc(i.codigo)}</b><small>${esc(i.reg.manutentor.nome)} · ${dataHoraBR(i.reg.fim)}</small></span>${pill(i.st)}</a></li>`).join('')}</ul></section>` : ''}
         ${aguard.length > minhas.length ? `<section class="bloco"><h2>Esperando outra assinatura</h2><ul class="agenda">${aguard.filter((i) => !minhas.includes(i)).map((i) => `<li><a class="ag ag-2" href="#r-${i.reg.id}"><span class="ag-maq"><b>${esc(i.codigo)}</b><small>${esc(i.reg.manutentor.nome)} · ${dataHoraBR(i.reg.fim)}</small></span>${pill(i.st)}</a></li>`).join('')}</ul></section>` : ''}
+        ${(() => { const v = acoes().filter((a) => stAcao(a) === 'vencida'); const ab = acoes().filter((a) => a.status !== 'fechada'); return ab.length ? `<section class="bloco ${v.length ? 'destaque-vermelho' : ''}"><div class="bloco-topo"><h2>Plano de ação</h2><a href="#acoes" class="link">Ver ações</a></div><p class="sub"><b>${ab.length}</b> ações abertas${v.length ? `, <b style="color:var(--danger)">${v.length} vencidas</b>` : ''}.</p></section>` : ''; })()}
         ${atrasadas.length ? `<section class="bloco destaque-vermelho"><h2>Atrasadas</h2><ul class="agenda">${atrasadas.map(linhaItem).join('')}</ul></section>` : ''}
         <section class="bloco"><h2>Dez/2026 a dez/2027 por setor</h2>
           ${porSetorAno.map(({ s, f, t }) => `<div class="setor-lin"><span><i style="background:${corSetor[s]}"></i>${SETORES[s].curto}</span><div class="barra"><i style="width:${f / t * 100}%"></i></div><b>${f}/${t}</b></div>`).join('')}
@@ -284,7 +289,7 @@ function calendario(el, setor) {
       </tbody></table></div>`;
   }
   el.innerHTML = `<div class="pag larga">
-    <div class="pag-topo"><h1 class="tit">Cronograma de preventivas</h1></div>
+    <div class="pag-topo pag-topo-acao"><h1 class="tit">Cronograma de preventivas</h1>${gestao() ? `<button type="button" class="btn btn-sec" data-excel>${ic('excel')} Exportar FR.06.08.068 (Excel)</button>` : ''}</div>
     <nav class="setor-tabs" aria-label="Setor">${Object.keys(SETORES).map((k) => { const l = todos.filter((i) => i.setor === k), px = l.find((i) => i.data >= h && i.st !== 'concluida' && !aguardando(i.st));
       return `<a href="#cal-${k}" class="${k === setor ? 'on' : ''}" style="--s:${corSetor[k]}"><b>${NOMES_SETOR[k]}</b><small>${MAQUINAS.filter((m) => m.setor === k).length} máquinas · ${l.length} preventivas${px ? ` · próxima ${esc(px.codigo)} ${diaMes(px.data)}` : ''}</small></a>`; }).join('')}</nav>
     <div class="cal-barra">
@@ -297,6 +302,9 @@ function calendario(el, setor) {
     <div class="legenda">${Object.entries(ST).map(([k, s]) => `<span><i class="anel" style="border-color:${s.cor}"></i>${s.nome}</span>`).join('')}<span class="sep"></span><span>* data sugerida pelo sistema (feriado)</span><span><small class="outro">VTFE 04</small> máquina de outro setor no mesmo dia</span></div>
   </div>`;
   const redesenhar = () => calendario(el, setor);
+  const bx = el.querySelector('[data-excel]'); if (bx) bx.onclick = () => abrirModal({ titulo: 'Exportar cronograma', html: `<p>Gera a planilha <b>FR.06.08.068</b> nas 3 abas (PPS, alumínio e fornos), com PROGRAMADO e REALIZADO marcados a partir dos relatórios assinados.</p>
+    <div class="linha-btn"><button type="button" class="btn btn-sec" data-ano="2026">Ano 2026 (só dezembro)</button><button type="button" class="btn btn-pri" data-ano="2027">Ano 2027</button></div>`,
+    onAbrir: (c, fechar) => c.querySelectorAll('[data-ano]').forEach((b) => { b.onclick = async () => { b.disabled = true; b.textContent = 'Gerando…'; try { const { exportarCronograma } = await import('./excel.js'); const n = await exportarCronograma(+b.dataset.ano); fechar(); toast(n + ' gerado.'); } catch (e) { if (e?.code !== 'declined') toast('Não foi possível gerar: ' + (e?.message || e), 'erro'); fechar(); } }; }) });
   el.querySelectorAll('[data-visao]').forEach((b) => { b.onclick = () => { visao = b.dataset.visao; pref('prev-visao', visao); redesenhar(); }; });
   el.querySelectorAll('[data-passo]').forEach((b) => { b.onclick = () => { refCal = passo(+b.dataset.passo); redesenhar(); }; });
   const bh = el.querySelector('[data-hoje-cal]'); if (bh) bh.onclick = () => { refCal = limitar(h); redesenhar(); };
@@ -442,6 +450,7 @@ function rotear() {
     telaFormulario(el, { maq: s, item: s.atual, aoTerminar: (r) => { telaEnviado(el, r); } });
     return;
   }
+  if (rota.startsWith('v-')) { telaVerificacao(app, rota.slice(2)); return; }
   if (rota.startsWith('r-')) { const el = casca(rota); telaRelatorio(el, { id: rota.slice(2), perfil, maqDe: (c) => porCodigo[c] }); return; }
   const el = casca(rota);
   if (rota === 'calendario' || rota === 'ano') { if (rota === 'ano') visao = 'ano'; location.replace('#cal-' + (pref('prev-setor') || 'al')); return; }
@@ -450,6 +459,10 @@ function rotear() {
   else if (rota === 'registros') telaRegistros(el);
   else if (rota === 'etiquetas' && gestao()) etiquetas(el);
   else if (rota === 'feriados' && gestao()) feriados(el);
+  else if (rota === 'acoes') telaAcoes(el, { perfil });
+  else if (rota === 'indicadores' && gestao()) telaIndicadores(el);
+  else if (rota === 'avisos' && gestao()) telaAvisos(el);
+  else if (rota.startsWith('h-')) telaHistorico(el, rota.slice(2));
   else painel(el);
 }
 // ---------- início: Supabase, login e perfil ----------
@@ -479,6 +492,8 @@ async function iniciar() {
   try { mod = await import('./supabase.js'); } catch { return telaAviso('Não foi possível carregar o sistema', 'Verifique a internet e recarregue a página.', '<button class="btn btn-pri" data-rec>Recarregar</button>'); }
   if (!mod.configurado) return telaAviso('Falta configurar o Supabase', 'Abra o arquivo <b>config.js</b> no GitHub e cole a <b>Publishable key</b> do projeto. A Vercel publica sozinha em cerca de 1 minuto.');
   sb = mod.sb; ligar(sb, mod.msgErro);
+  // verificação do selo do PDF: pública, não precisa de login
+  if (location.hash.startsWith('#v-')) { telaVerificacao(app, location.hash.slice(3)); window.addEventListener('hashchange', () => location.reload(), { once: true }); return; }
   sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { rodando = false; perfil = null; telaLogin(); } });
   const { data } = await sb.auth.getSession();
   if (!data.session) return telaLogin();

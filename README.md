@@ -45,3 +45,20 @@ Toda alteração salva no GitHub é publicada pela Vercel em cerca de 1 minuto.
 | Posições do PPS e dos fornos no 3D separado | `cena3d.js` (`LAYOUTS`) |
 | Folha A4 do relatório | `relatorio.js` e o fim de `app.css` |
 | Regras de acesso e do fluxo de assinaturas | `01_banco_de_dados.sql` |
+
+## Novidades (novembro/2026)
+
+- **Plano de ação**: todo item NOK com ação vira um cartão com responsável e prazo; fecha com evidência (texto + foto).
+- **Foto no NOK**: o manutentor tira a foto pelo celular; as fotos saem no PDF em "Anexo fotográfico".
+- **Selo de autenticidade**: quando o gerente assina, o PDF ganha um QR + código. Quem lê o QR vê se o relatório é autêntico e sem alterações.
+- **Histórico por máquina**: botão "Histórico" na ficha da máquina.
+- **Indicadores**: cumprimento do cronograma, no prazo, atrasadas, NOK mais frequentes, tempo médio por máquina.
+- **Avisos automáticos (Teams / e-mail)**: tela "Avisos". Envio todo dia útil às 06:30.
+- **Revisão do formulário**: cada relatório guarda a revisão do FR.06.08.002 usada. Para criar a rev. 6, adicione `FORMULARIOS[6]` em `dados.js` e mude `REV_ATUAL`. Os relatórios antigos continuam saindo na rev. 5.
+- **Cronograma FR.06.08.068 em Excel**: na aba Cronograma, botão Excel (gestão). Sai no mesmo formato da planilha, com PROGRAMADO (azul) e REALIZADO (verde).
+
+### Banco e avisos
+1. `03_melhorias.sql` – tabela de ações, fotos, selo e configuração dos avisos.
+2. Publicar a função `supabase/functions/avisos` (sem verificação de JWT).
+3. `04_avisos_agendamento.sql` – agenda o envio diário.
+4. E-mail é opcional: segredos `RESEND_API_KEY` e `AVISOS_REMETENTE` na função. O Teams funciona só com o link do Workflow.

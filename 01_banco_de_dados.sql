@@ -56,6 +56,8 @@ declare p text := public.meu_perfil();
 begin
   new.atualizado_em := now();
   if tg_op = 'INSERT' then
+    -- upsert de um registro que já existe: quem valida é a etapa de UPDATE (logo em seguida)
+    if exists (select 1 from public.registros where id = new.id) then return new; end if;
     if new.status not in ('rascunho', 'ag_sup') then raise exception 'Registro novo precisa começar pelo manutentor.'; end if;
     return new;
   end if;

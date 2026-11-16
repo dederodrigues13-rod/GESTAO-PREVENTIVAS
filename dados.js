@@ -65,11 +65,15 @@ export const JANELAS = { A: [1, 4, 7, 10], B: [2, 5, 8, 11], C: [3, 6, 9, 12] };
 export const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 // ---------- formulário FR.06.08.002-A (perguntas iguais ao papel) ----------
+// CONTROLE DE REVISÃO: cada revisão do formulário fica guardada em FORMULARIOS.
+// Para mudar perguntas: copie a revisão atual para um número novo (ex.: 6), altere
+// e troque REV_ATUAL. Os relatórios já feitos continuam com as perguntas da revisão
+// em que foram preenchidos (o número da revisão vai no registro e no PDF).
 const BOT = 'Verificar o funcionamento dos Botões de Emergência (funcionamento/quebrado)';
 const CHA = 'Verificar o funcionamento das chaves de segurança (funcionamento/quebrado)';
 const GER = 'Verificar o funcionamento da chave geral da máquina';
 const PAI = 'Verificar condições Painel Elétrico (painel amassado, quebrado, funcionamento da fechadura)';
-export const SECOES = {
+const SECOES_REV5 = {
   forno: { titulo: 'Sistema forno', papel: 'SISTEMA FORNO', itens: [BOT, CHA, GER,
     'Verificar o funcionamento IHM, tela de operação da injetora', PAI,
     'Verificar funcionamento do ar condicionado e ventiladores do painel elétrico',
@@ -95,8 +99,18 @@ export const SECOES = {
 };
 // Ordem das seções no papel. O ROBÔ continua impresso no relatório, mas não é
 // preenchido aqui: a preventiva dos robôs fica no Gestão de Fluidos (ABB).
-export const ORDEM_PAPEL = ['forno', 'injetora', 'espera', 'hidraulico', 'prensa', 'robo', 'termo'];
-export const ORDEM_SECOES = ORDEM_PAPEL.filter((k) => k !== 'robo');
+export const FORMULARIOS = {
+  5: { rev: 5, data: '16/09/2025', codigo: 'FR. 06.08.002 - A', secoes: SECOES_REV5, ordem: ['forno', 'injetora', 'espera', 'hidraulico', 'prensa', 'robo', 'termo'] },
+};
+export const REV_ATUAL = 5;
+export const formulario = (rev) => FORMULARIOS[rev] || FORMULARIOS[REV_ATUAL];
+// seções que podem ser preenchidas (o robô fica só no papel)
+export const secoesPreenchiveis = (rev) => formulario(rev).ordem.filter((k) => k !== 'robo');
+export const nomeSecao = (rev, k) => formulario(rev).secoes[k].titulo.split(' · ')[0];
+// compatibilidade
+export const SECOES = FORMULARIOS[REV_ATUAL].secoes;
+export const ORDEM_PAPEL = FORMULARIOS[REV_ATUAL].ordem;
+export const ORDEM_SECOES = secoesPreenchiveis(REV_ATUAL);
 
 // Seções que já vêm abertas para cada tipo. As outras ficam no botão "Adicionar seção".
 export function secoesPadrao(m) {

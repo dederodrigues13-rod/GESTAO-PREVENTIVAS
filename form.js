@@ -7,10 +7,11 @@
 // "Concluída" -> salvar PDF (igual ao papel) na pasta das preventivas.
 // O rascunho é salvo a cada resposta (se a tela apagar, nada se perde).
 // =====================================================================
-import { SECOES, ORDEM_SECOES, SETORES, MESES, secoesPadrao } from './dados.js';
+import { SETORES, MESES, secoesPadrao, REV_ATUAL, formulario, secoesPreenchiveis } from './dados.js';
 import { salvarRegistro, rascunhoDaProg, nomesUsados, novoId, registro as obterRegistro, recarregarRegistro, enviarPDF, baixarPDF, excluirRegistro } from './store.js';
 import { esc, ic, dataBR, semana, dataHoraBR, duracao, toast, abrirModal } from './ui.js';
-import { folhasA4, gerarPDF, salvarArquivo, nomeArquivo } from './relatorio.js';
+import { folhasA4, gerarPDF, salvarArquivo, nomeArquivo, carregarFotosRel } from './relatorio.js';
+import { botaoFoto, tirarFoto, miniaturas, carregarMiniaturas } from './fotos.js';
 import { hoje, ST } from './situacao.js';
 
 // ---------- assinatura com o dedo ----------
@@ -46,7 +47,8 @@ export function telaFormulario(el, { maq, item, aoTerminar }) {
   const m = maq.maquina;
   let r = item && rascunhoDaProg(item.id);
   if (!r) r = { id: novoId(), prog: item?.id || null, codigo: m.codigo, ciclo: item?.ciclo || hoje().slice(0, 7), dataPrevista: item?.data || null,
-    inicio: Date.now(), secoes: secoesPadrao(m), respostas: {}, plano: [], obs: '', status: 'rascunho' };
+    inicio: Date.now(), rev: REV_ATUAL, secoes: secoesPadrao(m), respostas: {}, plano: [], obs: '', status: 'rascunho' };
+  const SECOES = formulario(r.rev).secoes, ORDEM_SECOES = secoesPreenchiveis(r.rev);
   const salvar = () => salvarRegistro(r);
   const [a, mm] = r.ciclo.split('-');
   const foraJanela = item && hoje() < item.janelaIni;
@@ -110,13 +112,14 @@ export function telaFormulario(el, { maq, item, aoTerminar }) {
             ${v.v === 'nok' ? `<div class="nok">
               <label>O que foi encontrado?<textarea class="campo" rows="2" data-f="obs">${esc(v.obs || '')}</textarea></label>
               <label>Ação a fazer<input class="campo" data-f="acao" value="${esc(v.acao || '')}" placeholder="Ex.: trocar mangueira de retorno" /></label>
+              <div class="nok-fotos">${miniaturas(v.fotos, true)}${botaoFoto('data-fotoinput', v.fotos?.length ? 'Mais uma foto' : 'Tirar foto')}</div>
             </div>` : ''}
           </li>`;
         }).join('')}</ol></section>`;
     }).join('');
     const faltam = ORDEM_SECOES.filter((k) => !r.secoes.includes(k));
     $('[data-add]').innerHTML = faltam.length ? `<span>Adicionar seção:</span>${faltam.map((k) => `<button type="button" class="chip" data-addsec="${k}">${ic('plus')}${esc(SECOES[k].titulo.split(' · ')[0])}</button>`).join('')}` : '';
-    desenharPlano(); progresso();
+    desenharPlano(); progresso(); carregarMiniaturas($('[data-secoes]'));
   }
   function desenharPlano() {
     const auto = r.secoes.flatMap((k) => SECOES[k].itens.map((t, i) => ({ key: `${k}.${i}`, t, k, i }))).filter((x) => r.respostas[x.key]?.v === 'nok');
@@ -152,10 +155,19 @@ export function telaFormulario(el, { maq, item, aoTerminar }) {
     else if (b.dataset.tirar) { r.secoes = r.secoes.filter((k) => k !== b.dataset.tirar); salvar(); desenharSecoes(); }
     else if (b.hasAttribute('data-addplano')) { r.plano.push({ item: '', acao: '', resp: '', prazo: '' }); desenharPlano(); }
     else if (b.dataset.rmplano) { r.plano.splice(+b.dataset.rmplano, 1); salvar(); desenharPlano(); }
+    else if (b.dataset.rmfoto && li) { const v = r.respostas[li.dataset.k]; v.fotos = (v.fotos || []).filter((x) => x !== b.dataset.rmfoto); salvar(); desenharSecoes(); }
     else if (b.dataset.limpar) pad.limpar();
     else if (b.hasAttribute('data-concluir')) concluir();
   });
+  el.addEventListener('change', async (e) => {
+    const t = e.target; if (!t.hasAttribute('data-fotoinput')) return;
+    const li = t.closest('[data-k]'), k = li.dataset.k, lbl = t.closest('label'); lbl.classList.add('enviando');
+    const path = await tirarFoto(t, r.id); lbl.classList.remove('enviando');
+    if (!path) return;
+    const v = r.respostas[k]; v.fotos = [...(v.fotos || []), path]; salvar(); desenharSecoes();
+  });
   el.addEventListener('input', (e) => {
+    if (e.target.type === 'file') return;
     const t = e.target;
     if (t.dataset.f) { const k = t.closest('[data-k]').dataset.k; r.respostas[k][t.dataset.f] = t.value; if (t.dataset.f === 'acao') { const p = r.plano.find((x) => x.key === k); if (p) { p.acao = t.value; const pa = el.querySelector(`[data-j="${r.plano.indexOf(p)}"] .plano-acao`); if (pa) pa.textContent = t.value; } } }
     else if (t.dataset.p) r.plano[+t.closest('[data-j]').dataset.j][t.dataset.p] = t.value;
@@ -242,6 +254,8 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
   const emIframe = window.self !== window.top;
   el.innerHTML = `<div class="rel-wrap">
     <div class="rel-acoes"><a href="#registros" class="btn btn-sec">${ic('voltar')} Registros</a><span class="pill" style="--c:${st.cor}">${st.nome}</span>
+      ${r.selo ? `<a class="selo-tag" href="#v-${r.id}" title="Conferir autenticidade">${ic('escudo')} Selo ${esc(r.selo.slice(0, 8).toUpperCase())}</a>` : ''}
+      <a class="link" href="#h-${r.codigo.toLowerCase().replace(/\s+/g, '-')}">${ic('historico')} Histórico da ${esc(r.codigo)}</a>
       <span class="esp"></span>
       ${perfil === 'gerente' ? `<button type="button" class="btn btn-sec btn-excluir" data-excluir>${ic('lixo')} Excluir</button>` : ''}
       ${r.status === 'concluida' ? `<button type="button" class="btn btn-pri" data-pdf>${ic('baixar')} Baixar PDF</button>${emIframe ? '' : `<button type="button" class="btn btn-sec" data-imprimir>Imprimir</button>`}` : ''}</div>
@@ -259,6 +273,7 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
   const fol = el.querySelector('[data-folhas]');
   const ajustar = () => { const k = Math.min(1, fol.clientWidth / 794); fol.style.setProperty('--k', k); };
   new ResizeObserver(ajustar).observe(fol); ajustar();
+  carregarFotosRel(r).then((u) => { if (Object.keys(u).length && fol.isConnected) fol.innerHTML = folhasA4(r, m, u); });
   const bp = el.querySelector('[data-pdf]');
   if (bp) bp.onclick = async () => {
     bp.disabled = true; const txt = bp.innerHTML; bp.textContent = 'Preparando PDF…';
@@ -269,7 +284,8 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
   // guarda o PDF na pasta do sistema (Storage) — automático na assinatura do gerente
   async function guardar() {
     const p = el.querySelector('[data-pasta]'); if (p) p.textContent = 'Gerando o PDF e guardando na pasta do sistema…';
-    try { await enviarPDF(r, await gerarPDF(r, m)); toast(`${r.codigo}: PDF guardado na pasta.`); }
+    const atual = obterRegistro(id) || r;
+    try { await enviarPDF(atual, await gerarPDF(atual, m)); toast(`${r.codigo}: PDF guardado na pasta.`); }
     catch (e) { toast('O PDF não foi guardado na pasta: ' + (e?.message || e), 'erro'); }
     if (el.isConnected) telaRelatorio(el, { id, perfil, maqDe });
   }
@@ -292,6 +308,7 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
         await recarregarRegistro(id).catch(() => {});
         toast('Assinatura não foi gravada: ' + (e?.message || e), 'erro'); telaRelatorio(el, { id, perfil, maqDe }); return;
       }
+      if (r.status === 'concluida') await recarregarRegistro(id).catch(() => {}); // traz o selo gerado pelo banco
       toast(r.status === 'concluida' ? `${r.codigo}: preventiva concluída.` : `${r.codigo}: assinado. Agora falta o gerente.`);
       telaRelatorio(el, { id, perfil, maqDe }); window.scrollTo(0, 0);
       if (r.status === 'concluida') guardar();
