@@ -8,8 +8,8 @@
 // O rascunho é salvo a cada resposta (se a tela apagar, nada se perde).
 // =====================================================================
 import { SECOES, ORDEM_SECOES, SETORES, MESES, secoesPadrao } from './dados.js';
-import { salvarRegistro, rascunhoDaProg, nomesUsados, novoId, registro as obterRegistro, recarregarRegistro, enviarPDF, baixarPDF } from './store.js';
-import { esc, ic, dataBR, semana, dataHoraBR, duracao, toast } from './ui.js';
+import { salvarRegistro, rascunhoDaProg, nomesUsados, novoId, registro as obterRegistro, recarregarRegistro, enviarPDF, baixarPDF, excluirRegistro } from './store.js';
+import { esc, ic, dataBR, semana, dataHoraBR, duracao, toast, abrirModal } from './ui.js';
 import { folhasA4, gerarPDF, salvarArquivo, nomeArquivo } from './relatorio.js';
 import { hoje, ST } from './situacao.js';
 
@@ -214,6 +214,24 @@ export function telaEnviado(el, r) {
   </div>`;
 }
 
+// ---------- excluir registro (só gerente de manutenção) ----------
+const MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+export function confirmarExclusao(r, depois) {
+  abrirModal({ titulo: 'Excluir registro', html: `
+    <p>Excluir o registro da <b>${esc(r.codigo)}</b> · preventiva de ${MES[+r.ciclo.slice(5) - 1]}/${r.ciclo.slice(0, 4)}, feita por ${esc(r.manutentor?.nome || '—')} em ${dataHoraBR(r.fim)}?</p>
+    <p class="aviso aviso-red">${ic('alert')}<span>Apaga ${r.pdf_path ? 'as respostas, as assinaturas e o PDF da pasta' : 'as respostas e as assinaturas'}. Não dá para desfazer. A preventiva volta a ficar em aberto no cronograma.</span></p>
+    <div class="erros" data-erro hidden></div>
+    <div class="linha-btn"><button type="button" class="btn btn-sec" data-fechar>Cancelar</button><button type="button" class="btn btn-perigo" data-ok>${ic('lixo')} Excluir definitivamente</button></div>`,
+  onAbrir: (c, fechar) => {
+    const ok = c.querySelector('[data-ok]');
+    ok.onclick = async () => {
+      ok.disabled = true; ok.textContent = 'Excluindo…';
+      try { await excluirRegistro(r); fechar(); toast(`Registro da ${r.codigo} excluído.`); depois?.(); }
+      catch (e) { const b = c.querySelector('[data-erro]'); b.hidden = false; b.textContent = 'Não foi possível excluir: ' + (e?.message || e); ok.disabled = false; ok.innerHTML = `${ic('lixo')} Excluir definitivamente`; }
+    };
+  } });
+}
+
 // ---------- relatório (folhas A4 iguais ao papel) + assinaturas do supervisor e do gerente ----------
 const ETAPA = { ag_sup: ['supervisor', 'Supervisor da área'], ag_ger: ['gerente', 'Gerente de manutenção'] };
 export function telaRelatorio(el, { id, perfil, maqDe }) {
@@ -225,6 +243,7 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
   el.innerHTML = `<div class="rel-wrap">
     <div class="rel-acoes"><a href="#registros" class="btn btn-sec">${ic('voltar')} Registros</a><span class="pill" style="--c:${st.cor}">${st.nome}</span>
       <span class="esp"></span>
+      ${perfil === 'gerente' ? `<button type="button" class="btn btn-sec btn-excluir" data-excluir>${ic('lixo')} Excluir</button>` : ''}
       ${r.status === 'concluida' ? `<button type="button" class="btn btn-pri" data-pdf>${ic('baixar')} Baixar PDF</button>${emIframe ? '' : `<button type="button" class="btn btn-sec" data-imprimir>Imprimir</button>`}` : ''}</div>
     ${r.status === 'concluida' ? `<p class="sub" data-pasta>${r.pdf_path ? `${ic('check')} Guardado na pasta do sistema: <b>${esc(nomeArquivo(r))}</b>` : 'O PDF ainda não está na pasta do sistema.'}
       ${!r.pdf_path && perfil !== 'manutentor' ? '<button type="button" class="link" data-guardar>Gerar e guardar agora</button>' : ''}</p>` : ''}
@@ -256,6 +275,7 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
   }
   const bg = el.querySelector('[data-guardar]'); if (bg) bg.onclick = guardar;
   const bi = el.querySelector('[data-imprimir]'); if (bi) bi.onclick = () => window.print();
+  const bx = el.querySelector('[data-excluir]'); if (bx) bx.onclick = () => confirmarExclusao(r, () => { location.hash = 'registros'; });
   if (vez) {
     const pad = padAssinatura(el.querySelector('#ass-pad')), nome = el.querySelector('#ass-nome');
     try { nome.value = localStorage.getItem('prev-nome-' + etapa[0]) || (etapa[0] === 'gerente' ? 'Danilo Correa' : ''); } catch { /* ok */ }

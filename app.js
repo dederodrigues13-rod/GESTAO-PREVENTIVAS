@@ -15,7 +15,7 @@ import { nomeArquivo, salvarArquivo, gerarPDF } from './relatorio.js';
 import { instalarApp, estaInstalado } from './pwa.js';
 import { EMAIL_DOMINIO } from './config.js';
 import { esc, ic, dataBR, diaMes, semana, quando, abrirModal, toast, dataHoraBR, duracao, paraData } from './ui.js';
-import { telaFormulario, telaEnviado, telaRelatorio } from './form.js';
+import { telaFormulario, telaEnviado, telaRelatorio, confirmarExclusao } from './form.js';
 
 const URL_APP = location.origin + '/';
 const app = document.getElementById('app');
@@ -355,11 +355,13 @@ function telaRegistros(el) {
       <div class="chips">${[['', 'Todas'], ['ag_sup', 'Aguardando supervisor'], ['ag_ger', 'Aguardando gerente'], ['concluida', 'Concluídas']].map(([k, n]) => `<button type="button" class="chip ${f.st === k ? 'on' : ''}" data-fst="${k}">${n}</button>`).join('')}</div>
       <input class="campo busca" type="search" placeholder="Máquina ou manutentor" value="${esc(f.q)}" data-q aria-label="Buscar" />
     </div>
-    ${regs.length ? `<table class="tab stack"><thead><tr><th>Máquina</th><th>Preventiva de</th><th>Manutentor</th><th>Feita em</th><th class="num">Tempo</th><th class="num">NOK</th><th>Situação</th><th>PDF</th></tr></thead><tbody>
+    ${regs.length ? `<table class="tab stack"><thead><tr><th>Máquina</th><th>Preventiva de</th><th>Manutentor</th><th>Feita em</th><th class="num">Tempo</th><th class="num">NOK</th><th>Situação</th><th>PDF</th>${perfil === 'gerente' ? '<th><span class="sr">Excluir</span></th>' : ''}</tr></thead><tbody>
       ${regs.map((r) => `<tr data-ir="${r.id}"><td data-l="Máquina"><b>${esc(r.codigo)}</b></td><td data-l="Preventiva de">${nomeMes(r.ciclo)}${r.antecipada ? ' · antecipada' : ''}</td><td data-l="Manutentor">${esc(r.manutentor?.nome || '')}</td><td data-l="Feita em">${dataHoraBR(r.fim)}</td><td data-l="Tempo" class="num">${duracao(r.fim - r.inicio)}</td><td data-l="NOK" class="num">${Object.values(r.respostas).filter((v) => v.v === 'nok').length}</td><td data-l="Situação">${pill(ST[r.status] ? r.status : 'ag_sup')}</td>
-        <td data-l="PDF">${r.status === 'concluida' ? `<button type="button" class="btn btn-sec btn-sm" data-baixar="${r.id}">${ic('baixar')} Baixar</button>` : '—'}</td></tr>`).join('')}
+        <td data-l="PDF">${r.status === 'concluida' ? `<button type="button" class="btn btn-sec btn-sm" data-baixar="${r.id}">${ic('baixar')} Baixar</button>` : '—'}</td>
+        ${perfil === 'gerente' ? `<td data-l="Excluir"><button type="button" class="icone btn-excluir" data-excluir="${r.id}" aria-label="Excluir registro da ${esc(r.codigo)}" title="Excluir registro">${ic('lixo')}</button></td>` : ''}</tr>`).join('')}
     </tbody></table>` : `<div class="vazio-grande">${ic('lista', 'ic-lg')}<p>${todos.length ? 'Nenhum registro com esse filtro.' : 'Nenhuma preventiva registrada ainda.'}</p></div>`}</div>`;
-  el.querySelectorAll('[data-ir]').forEach((tr) => { tr.onclick = (e) => { if (e.target.closest('[data-baixar]')) return; location.hash = 'r-' + tr.dataset.ir; }; });
+  el.querySelectorAll('[data-ir]').forEach((tr) => { tr.onclick = (e) => { if (e.target.closest('[data-baixar], [data-excluir]')) return; location.hash = 'r-' + tr.dataset.ir; }; });
+  el.querySelectorAll('[data-excluir]').forEach((b) => { b.onclick = () => confirmarExclusao(todos.find((x) => x.id === b.dataset.excluir), () => telaRegistros(el)); });
   el.querySelectorAll('[data-fs]').forEach((b) => { b.onclick = () => { f.setor = b.dataset.fs; telaRegistros(el); }; });
   el.querySelectorAll('[data-fst]').forEach((b) => { b.onclick = () => { f.st = b.dataset.fst; telaRegistros(el); }; });
   const qi = el.querySelector('[data-q]'); qi.oninput = () => { f.q = qi.value; clearTimeout(qi.t); qi.t = setTimeout(() => { telaRegistros(el); const n = el.querySelector('[data-q]'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 300); };

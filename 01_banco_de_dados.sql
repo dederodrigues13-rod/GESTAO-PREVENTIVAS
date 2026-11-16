@@ -147,3 +147,7 @@ create policy "gestao troca relatorios" on storage.objects for update to authent
 revoke execute on function public.meu_perfil(), public.tem_perfil(), public.e_gestao(), public.validar_registro() from public, anon;
 revoke execute on function public.validar_registro() from authenticated;
 grant execute on function public.meu_perfil(), public.tem_perfil(), public.e_gestao() to authenticated;
+
+-- ---------- gerente pode apagar o PDF ao excluir um registro ----------
+drop policy if exists "gerente apaga relatorios" on storage.objects;
+create policy "gerente apaga relatorios" on storage.objects for delete to authenticated using (bucket_id = 'relatorios' and public.meu_perfil() = 'gerente');

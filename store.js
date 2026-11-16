@@ -92,6 +92,19 @@ export async function recarregarRegistro(id) {
   avisar();
 }
 
+// Exclusão (só o gerente): apaga o registro e o PDF da pasta. Sem volta.
+// A preventiva programada volta a ficar em aberto no cronograma.
+export async function excluirRegistro(r) {
+  const { data, error } = await sb.from('registros').delete().eq('id', r.id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('sem permissão para excluir (só o gerente de manutenção).');
+  if (r.pdf_path) await sb.storage.from('relatorios').remove([r.pdf_path]).catch(() => {});
+  clearTimeout(esperas.get(r.id));
+  mem.registros = mem.registros.filter((x) => x.id !== r.id);
+  try { const l = locais(); delete l[r.id]; localStorage.setItem(LOCAL, JSON.stringify(l)); } catch { /* ok */ }
+  avisar();
+}
+
 // ---------- remarcações e dias sem expediente ----------
 export const reprog = () => mem.reprog;
 export function reprogramar(progId, data) {
