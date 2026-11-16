@@ -33,20 +33,45 @@ const ABAS = [
   ['painel', 'Painel', 'painel'], ['calendario', 'Calendário', 'cal'], ['layout', 'Layout 3D', 'cubo'],
   ['registros', 'Registros', 'lista'], ['feriados', 'Feriados', 'cal', true], ['etiquetas', 'Etiquetas QR', 'qr', true],
 ];
+const TITULOS = { painel: 'Painel', calendario: 'Calendário', layout: 'Layout 3D', registros: 'Registros', feriados: 'Feriados', etiquetas: 'Etiquetas QR' };
+const menuFixo = () => pref('prev-menu-fixo') === '1';
+const dataExtenso = () => { const t = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); return t.charAt(0).toUpperCase() + t.slice(1); };
+// Mesmo layout do Gestão de Fluidos: menu lateral (recolhido em ícones, abre ao passar o
+// cursor, ou fixo — lembrado no aparelho) e cabeçalho com o banner da Vetore.
 function casca(rota) {
   const base = rota.startsWith('layout') ? 'layout' : rota.startsWith('cal') || rota === 'ano' ? 'calendario' : rota;
+  const titulo = rota.startsWith('m-') ? 'Formulário' : rota.startsWith('r-') ? 'Relatório' : TITULOS[base] || 'Painel';
   const pend = registros().filter((r) => r.status === minhaEtapa()).length;
+  const links = ABAS.filter((x) => !x[3] || gestao()).map(([h, n, i]) => `<a href="#${h}" class="${base === h ? 'active' : ''}" title="${n}">${ic(i)}<span>${n}</span>${h === 'registros' && pend ? `<b class="badge">${pend}</b>` : ''}</a>`).join('');
   app.innerHTML = `
-  <header class="topo">
-    <a href="#painel" class="marca"><img src="logo-vetore.png" alt="Vetore" /><span>Gestão de Preventivas</span></a>
-    <nav class="abas" aria-label="Seções">${ABAS.filter((a) => !a[3] || gestao()).map(([h, n, i]) => `<a href="#${h}" class="${base === h ? 'on' : ''}">${ic(i)}<span>${n}</span>${h === 'registros' && pend ? `<b class="badge">${pend}</b>` : ''}</a>`).join('')}</nav>
-    <div class="conta"><span title="${esc(usuario?.email || '')}">${PERFIS[perfil]}</span>
-      ${estaInstalado() ? '' : `<button type="button" class="btn btn-sec btn-sm" data-instalar>Instalar app</button>`}
-      <button type="button" class="btn btn-sec btn-sm" data-sair>Sair</button></div>
-  </header>
-  <main id="tela"></main>`;
+  <div class="shell ${menuFixo() ? 'fixo' : 'recolhido'}">
+    <aside class="side" aria-label="Menu">
+      <div class="side-topo"><button type="button" class="btn-fixar" data-fixar></button></div>
+      <div class="brand"><div class="brand-title">Gestão de Preventivas</div><div class="brand-sub">Vetore · Injeção</div><div class="brand-mini" aria-hidden="true">GP</div></div>
+      <nav class="nav">${links}</nav>
+      <div class="side-foot"><button type="button" class="btn-sair" data-sair>${ic('logout')}<span>Sair</span></button></div>
+    </aside>
+    <div class="main">
+      <header class="top">
+        <div class="top-logo">Gestão de Preventivas</div>
+        <div class="top-titles"><div class="top-data">${esc(dataExtenso())}</div><h1>${titulo}</h1></div>
+        <div class="top-right">
+          ${estaInstalado() ? '' : `<button type="button" class="btn btn-sec btn-install" data-instalar>${ic('baixar')}<span>Instalar app</span></button>`}
+          <span class="ola" title="${esc(usuario?.email || '')}">Olá, ${PERFIS[perfil]}</span>
+          <button type="button" class="icon-btn top-sair" data-sair aria-label="Sair">${ic('logout')}</button>
+        </div>
+        <nav class="mob-nav" aria-label="Seções">${links}</nav>
+      </header>
+      <main id="tela" class="content"></main>
+    </div>
+  </div>`;
   const bi = app.querySelector('[data-instalar]'); if (bi) bi.onclick = () => instalarApp();
-  app.querySelector('[data-sair]').onclick = () => sb.auth.signOut();
+  app.querySelectorAll('[data-sair]').forEach((b) => { b.onclick = () => sb.auth.signOut(); });
+  const shell = app.querySelector('.shell'), bf = app.querySelector('[data-fixar]');
+  const pintar = () => { const f = shell.classList.contains('fixo'); bf.innerHTML = ic('menu'); bf.title = f ? 'Recolher o menu (abre ao passar o cursor)' : 'Fixar o menu aberto'; bf.setAttribute('aria-label', bf.title); bf.setAttribute('aria-pressed', String(f)); };
+  pintar();
+  bf.onclick = () => { const f = !shell.classList.contains('fixo'); shell.classList.toggle('fixo', f); shell.classList.toggle('recolhido', !f); pref('prev-menu-fixo', f ? '1' : '0'); pintar(); bf.blur(); };
+  app.querySelectorAll('.side .nav a').forEach((x) => x.addEventListener('click', () => { if (shell.classList.contains('recolhido')) { shell.classList.add('fechando'); x.blur(); } }));
   return app.querySelector('#tela');
 }
 

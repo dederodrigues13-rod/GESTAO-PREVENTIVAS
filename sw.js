@@ -1,8 +1,8 @@
 // Service worker: permite instalar como app e abre mais rápido.
 // Sempre tenta a internet primeiro (dados sempre atualizados); usa a cópia
 // guardada só se estiver sem conexão. Dados do Supabase nunca são guardados.
-const CACHE = 'gestao-preventivas-v1';
-const BASE = ['/', '/app.css', '/app.js', '/config.js', '/logo-vetore.png', '/manifest.json'];
+const CACHE = 'gestao-preventivas-v2';
+const BASE = ['/', '/app.css', '/app.js', '/config.js', '/logo-vetore.png', '/banner-vetore.jpg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(BASE)).catch(() => {}));
