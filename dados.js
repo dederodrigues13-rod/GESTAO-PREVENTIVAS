@@ -174,3 +174,7 @@ export function montarCronograma() {
   return prog.sort((a, b) => a.data.localeCompare(b.data) || a.codigo.localeCompare(b.codigo));
 }
 export const CRONOGRAMA = montarCronograma();
+
+// Forno de espera de cada célula (para os chamados "forno da máquina 08" do SM).
+// Preencher quando o Denis mandar o mapa, ex.: { '08': 'VTFE 03', '10': 'VTFE 05' }
+export const CELULA_VTFE = {};
