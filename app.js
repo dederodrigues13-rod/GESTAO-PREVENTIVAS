@@ -500,7 +500,8 @@ async function iniciar() {
   entrar(data.session);
 }
 window.addEventListener('hashchange', () => { if (rodando) rotear(); });
-aoMudar(() => { if (rodando && !/^#(m-|r-|layout)/.test(location.hash)) rotear(); });
+// telas com campos para digitar não são redesenhadas sozinhas (não perde o que está sendo digitado)
+aoMudar(() => { if (rodando && !/^#(m-|r-|layout|avisos|feriados)/.test(location.hash)) { const y = scrollY; rotear(); requestAnimationFrame(() => scrollTo(0, y)); } });
 aoErro((m) => toast('Não foi gravado: ' + m, 'erro'));
 // atualiza sozinho: ao voltar para a aba e a cada 2 minutos (assinaturas feitas em outro celular)
 const atualizar = () => { if (rodando && document.visibilityState === 'visible') carregar().catch(() => {}); };

@@ -49,15 +49,21 @@ export async function carregar() {
   const regs = a.data.map(deLinha);
   // rascunho do celular que ainda não chegou ao banco
   Object.values(locais()).forEach((r) => { if (!regs.some((x) => x.id === r.id)) { regs.push(r); persistir(r).catch(() => {}); } });
-  mem = {
+  const novo = {
     registros: regs,
     reprog: Object.fromEntries(b.data.map((x) => [x.prog_id, x.data])),
     folgas: Object.fromEntries(c.data.map((x) => [x.data, x.nome])),
     trabalha: d.data.map((x) => x.data),
     acoes: f.error ? [] : f.data,   // tabela de ações ausente (banco ainda sem o script 03): segue sem ações
   };
+  // só redesenha a tela se algo mudou no banco (evita a página "piscar" a cada 2 min)
+  const assin = JSON.stringify(novo);
+  mem = novo;
+  if (assin === ultimaCarga) return;
+  ultimaCarga = assin;
   avisar();
 }
+let ultimaCarga = '';
 
 // ---------- registros ----------
 export const registros = () => mem.registros;
