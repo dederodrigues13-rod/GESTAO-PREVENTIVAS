@@ -62,3 +62,11 @@ Toda alteração salva no GitHub é publicada pela Vercel em cerca de 1 minuto.
 2. Publicar a função `supabase/functions/avisos` (sem verificação de JWT).
 3. `04_avisos_agendamento.sql` – agenda o envio diário.
 4. E-mail pelo Outlook: a Vetore bloqueia fluxos que recebem chamadas de fora, então o fluxo do Teams é que **busca** os avisos. Tela Avisos → copie o endereço do feed → no app Fluxos de trabalho do Teams: gatilho RSS "Quando um item do feed é publicado" → "Enviar um email (V2)" com Para `first(triggerBody()?['categories'])`, Assunto `triggerBody()?['title']`, Corpo `triggerBody()?['summary']`.
+
+## Visual novo (17/11/2026)
+- **Painel:** "Hoje" com ponto pulsando, anel do mês e linha do tempo da semana (seg a sex, por setor, com a marca "agora").
+- **Modo TV** (`#tv`, botão no painel): tela cheia para o monitor do setor; troca Alumínio → PPS → Fornos a cada 10 s e mantém a tela ligada.
+- **Indicadores:** mapa do período dia a dia (um quadradinho por dia, filtro por setor) e números que sobem ao abrir.
+- **Acabamento:** esqueleto de carregamento, carimbo "Autêntico" quando o gerente conclui, tema claro opcional (sol/lua no cabeçalho).
+- **3D:** máquina escolhida com onda no chão, etiqueta flutuando e câmera que vai até ela; botão **Tour** passeia pelas células.
+- **Celular:** "Um item por vez" (botões OK/NOK grandes, vibra ao tocar) ou "Lista completa"; **Assinar em tela cheia** com o celular deitado.

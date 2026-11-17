@@ -6,7 +6,8 @@ import { MAQUINAS, SETORES, MESES, porCodigo, porSlug, formulario, nomeSecao } f
 import { itens, porMaquina, ST, ST3D, COR3D, hoje, aguardando } from './situacao.js';
 import { registros, acoes, atualizarAcao, lerAvisos, salvarAvisos, testarAvisos, verificar } from './store.js';
 import { SUPABASE_URL } from './config.js';
-import { esc, ic, dataBR, diaMes, semana, dataHoraBR, duracao, toast, abrirModal, diasEntre } from './ui.js';
+import { esc, ic, dataBR, diaMes, semana, dataHoraBR, duracao, toast, abrirModal, diasEntre, contarNumeros, esqueleto } from './ui.js';
+import { folgas } from './situacao.js';
 import { botaoFoto, tirarFoto, miniaturas, carregarMiniaturas } from './fotos.js';
 
 const nomeMes = (ciclo) => `${MESES[+ciclo.slice(5) - 1]}/${ciclo.slice(0, 4)}`;
@@ -160,6 +161,42 @@ export function telaHistorico(el, slug) {
 }
 
 // ---------- indicadores ----------
+// ---------- mapa do ano: um quadradinho por dia útil, colorido pela situação ----------
+const MAPA_COR = { concluida: 'var(--ok)', ag_sup: '#a98bff', ag_ger: '#a98bff', atrasada: 'var(--danger)', pendente: '#f0a93b', hoje: 'var(--yellow)' };
+const pad2 = (n) => String(n).padStart(2, '0');
+const isoDe = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+function mapaAnoHtml(lista, h, filtro) {
+  const ini = lista[0]?.janelaIni || h, fim = lista.at(-1)?.janelaFim || h;
+  const d0 = new Date(ini + 'T12:00'); d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7));
+  const dFim = new Date(fim + 'T12:00'), fol = folgas();
+  const porDia = {}; lista.forEach((i) => { if (filtro === 'todos' || i.setor === filtro) (porDia[i.data] ??= []).push(i); });
+  const MES3 = MESES.map((m) => m.slice(0, 3));
+  const cols = [];
+  for (const d = new Date(d0); d <= dFim; d.setDate(d.getDate() + 7)) {
+    let mes = '';
+    const cel = [0, 1, 2, 3, 4].map((k) => {
+      const x = new Date(d); x.setDate(d.getDate() + k); const iso = isoDe(x);
+      if (x.getDate() <= 7 && k === 0) mes = MES3[x.getMonth()] + (x.getMonth() === 0 ? ' ' + x.getFullYear() : '');
+      if (iso < ini || iso > fim) return '<i class="ma-c ma-fora"></i>';
+      const l = porDia[iso] || [], br = dataBR(iso).slice(0, 5);
+      if (!l.length) return fol[iso] ? `<i class="ma-c ma-folga" title="${br} · ${esc(fol[iso])}"></i>` : `<i class="ma-c" title="${br} · sem preventiva"></i>`;
+      const i = l[0], cor = MAPA_COR[i.st];
+      const tip = `${br} · ${l.map((y) => `${y.codigo} (${ST[y.st].nome})`).join(', ')}`;
+      return `<button type="button" class="ma-c ${cor ? '' : 'ma-prog'}" style="${cor ? `background:${cor}` : ''}" data-prog-mapa="${i.id}" title="${esc(tip)}" aria-label="${esc(tip)}"></button>`;
+    });
+    cols.push(`<div class="ma-col"><span class="ma-mes">${mes}</span>${cel.join('')}</div>`);
+  }
+  const abas = [['todos', 'Todos'], ...Object.keys(SETORES).map((k) => [k, SETORES[k].curto])];
+  return `<div class="bloco-topo"><h2>O período dia a dia</h2><div class="ma-abas">${abas.map(([k, n]) => `<button type="button" class="chip ${k === filtro ? 'on' : ''}" data-mapa="${k}">${n}</button>`).join('')}</div></div>
+    <div class="ma-scroll"><div class="ma-grade"><div class="ma-col ma-sem"><span class="ma-mes"></span>${['seg', 'ter', 'qua', 'qui', 'sex'].map((x) => `<span>${x}</span>`).join('')}</div>${cols.join('')}</div></div>
+    <div class="legenda ma-leg"><span><i style="background:var(--ok)"></i>feita</span><span><i style="background:#a98bff"></i>assinando</span><span><i style="background:var(--yellow)"></i>hoje</span><span><i style="background:#f0a93b"></i>passou da data</span><span><i style="background:var(--danger)"></i>atrasada</span><span><i class="ma-prog"></i>programada</span><span><i class="ma-folga"></i>sem expediente</span><span class="muted">Passe o mouse ou toque num dia</span></div>`;
+}
+function ligarMapa(el, lista, h) {
+  const box = el.querySelector('[data-mapa-ano]'); if (!box) return;
+  box.querySelectorAll('[data-mapa]').forEach((b) => { b.onclick = () => { box.innerHTML = mapaAnoHtml(lista, h, b.dataset.mapa); ligarMapa(el, lista, h); }; });
+  box.querySelectorAll('[data-prog-mapa]').forEach((b) => { b.onclick = () => { const i = lista.find((x) => x.id === b.dataset.progMapa); if (i?.reg && i.reg.status !== 'rascunho') location.hash = 'r-' + i.reg.id; else if (i) location.hash = 'h-' + porCodigo[i.codigo].slug; }; });
+}
+
 export function telaIndicadores(el) {
   const lista = itens(), h = hoje(), regs = registros().filter((r) => r.status !== 'rascunho');
   const devidas = lista.filter((i) => i.janelaFim < h || realizada(i)), feitas = lista.filter(realizada);
@@ -188,6 +225,7 @@ export function telaIndicadores(el) {
       <div class="kpi"><b>${doMes.filter(realizada).length}/${doMes.length}</b><span>${MESES[+h.slice(5, 7) - 1]}: feitas / programadas</span></div>
       <div class="kpi" style="--c:${ST_ACAO.vencida.cor}"><b>${acVenc.length}/${acAbertas.length}</b><span>ações vencidas / abertas</span></div>
     </section>
+    <section class="bloco mapa-ano" data-mapa-ano>${mapaAnoHtml(lista, h, 'todos')}</section>
     <section class="bloco"><div class="bloco-topo"><h2>Mês a mês</h2><span class="legenda"><span><i style="background:var(--ok)"></i>feitas</span><span><i style="background:#2c3540"></i>programadas</span></span></div>
       <div class="meses-graf">${porMes.map((x) => `<div class="mg ${x.fut ? 'fut' : ''}" title="${nomeMes(x.c)}: ${x.f} feitas de ${x.t} (${x.p} até o dia programado)">
         <div class="mg-col"><i style="height:${x.t ? x.f / x.t * 100 : 0}%"></i></div><b>${x.f}/${x.t}</b><span>${mesCurto(x.c)}</span></div>`).join('')}</div></section>
@@ -204,11 +242,13 @@ export function telaIndicadores(el) {
         ${maqNok.length ? `<div class="barras">${maqNok.map(([c, n]) => `<div class="barra-lin"><span><a href="#h-${porCodigo[c].slug}">${c}</a></span><div class="barra barra-red"><i style="width:${n / maqNok[0][1] * 100}%"></i></div><b>${n}</b></div>`).join('')}</div>` : '<p class="vazio-p">Nenhum NOK registrado.</p>'}</section>
     </div>
   </div>`;
+  ligarMapa(el, lista, h);
+  contarNumeros(el, '.ind-hero b');
 }
 
 // ---------- avisos automáticos ----------
 export async function telaAvisos(el) {
-  el.innerHTML = '<p class="carregando">Carregando…</p>';
+  el.innerHTML = esqueleto('Carregando avisos');
   let c; try { c = await lerAvisos(); } catch (e) { c = null; }
   if (!c) { el.innerHTML = `<div class="pag estreita"><p class="aviso">${ic('alert')}<span>A configuração dos avisos ainda não existe no banco. Falta aplicar a atualização do banco (script 03).</span></p></div>`; return; }
   const feed = `${SUPABASE_URL}/functions/v1/avisos?feed=${c.token}`;

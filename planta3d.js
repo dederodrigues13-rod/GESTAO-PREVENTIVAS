@@ -46,6 +46,7 @@ export async function criarPlanta3D(el, { tv = false, aoAbrir = null, aoParar = 
           <button type="button" data-geral>Visão geral</button>
           <button type="button" data-topo>De cima</button>
           <button type="button" data-girar aria-pressed="false">Girar</button>
+          <button type="button" data-tour aria-pressed="false">▶ Tour</button>
         </div>
         <aside class="p3d-ficha" data-ficha hidden></aside>
         <div class="p3d-dica">Arraste para girar · botão direito para mover · role para zoom · clique numa máquina</div>`}`;
@@ -934,11 +935,17 @@ export async function criarPlanta3D(el, { tv = false, aoAbrir = null, aoParar = 
   let selecionada = null;
   const selAnel = new THREE.Mesh(guarda(new THREE.RingGeometry(1, 1.12, 64)), guarda(new THREE.MeshBasicMaterial({ color: lin(0xffc20e), side: THREE.DoubleSide, transparent: true, depthWrite: false })));
   selAnel.rotation.x = -Math.PI / 2; selAnel.position.y = .05; selAnel.visible = false; S.add(selAnel);
+  // destaque da máquina escolhida: onda que se abre no chão + etiqueta que flutua
+  const selOnda = new THREE.Mesh(guarda(new THREE.RingGeometry(1, 1.06, 64)), guarda(new THREE.MeshBasicMaterial({ color: lin(0xffc20e), side: THREE.DoubleSide, transparent: true, depthWrite: false })));
+  selOnda.rotation.x = -Math.PI / 2; selOnda.position.y = .06; selOnda.visible = false; S.add(selOnda);
+  let etFlutua = null;
   function mostrarFicha(eq) {
     const f = $('[data-ficha]'); if (!f) return;
+    if (etFlutua && etFlutua !== eq) { etFlutua.et.position.y = etFlutua.topo + .9; etFlutua.et.scale.set(3.2, .8, 1); etFlutua = null; }
     selecionada = eq;
-    if (!eq) { f.hidden = true; selAnel.visible = false; return; }
-    selAnel.visible = true; selAnel.position.set(eq.x, .05, eq.z); selAnel.scale.setScalar(eq.r + .6);
+    if (!eq) { f.hidden = true; selAnel.visible = selOnda.visible = false; return; }
+    selAnel.visible = selOnda.visible = true; selAnel.position.set(eq.x, .05, eq.z); selAnel.scale.setScalar(eq.r + .6);
+    selOnda.position.set(eq.x, .06, eq.z); etFlutua = eq; eq.et.scale.set(3.2 * 1.25, .8 * 1.25, 1);
     const corpo = eq.dado && ficha ? ficha(eq.nome)
       : `<div><h3>${esc(eq.nome)}</h3><p class="p3d-sub">${esc(eq.tipo)}${eq.cel && eq.cel !== 'fornos' ? ' · Célula ' + eq.cel : ''}</p></div>
          <p class="p3d-sub">Fora do cronograma de preventivas (FR.06.08.068).</p>`;
@@ -957,6 +964,13 @@ export async function criarPlanta3D(el, { tv = false, aoAbrir = null, aoParar = 
     $('[data-topo]').onclick = () => voar([0, 120, .1], [0, 0, 0]);
     const bg = $('[data-girar]');
     bg.onclick = () => { girando = !girando; O.autoRotate = girando; O.autoRotateSpeed = .6; bg.setAttribute('aria-pressed', String(girando)); bg.textContent = girando ? 'Parar' : 'Girar'; };
+    // tour: passeia a câmera pelas células sozinha (para apresentações); qualquer toque na cena para
+    const bt = $('[data-tour]'), ordemCel = Object.keys(celulas).sort();
+    let tourTimer = null, tourI = 0;
+    const pararTour = () => { if (!tourTimer) return; clearInterval(tourTimer); tourTimer = null; bt.setAttribute('aria-pressed', 'false'); bt.textContent = '▶ Tour'; };
+    const passo = () => { if (!el.isConnected) return pararTour(); if (tourI >= ordemCel.length) { tourI = 0; voar(...GERAL, .03); return; } irCelula(ordemCel[tourI++], .035); };
+    bt.onclick = () => { if (tourTimer) return pararTour(); if (girando) bg.click(); tourI = 0; passo(); tourTimer = setInterval(passo, 4500); bt.setAttribute('aria-pressed', 'true'); bt.textContent = '■ Parar tour'; };
+    R.domElement.addEventListener('pointerdown', pararTour);
   }
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(); let desce = null, ultimoHover = 0;
   const acertarObj = (e) => { const r = R.domElement.getBoundingClientRect(); ptr.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(ptr, C); return ray.intersectObjects(pick, false)[0]?.object || null; };
@@ -966,6 +980,7 @@ export async function criarPlanta3D(el, { tv = false, aoAbrir = null, aoParar = 
     if (tv || !desce || Math.hypot(e.clientX - desce[0], e.clientY - desce[1]) > 6) return;
     const h = acertarObj(e), eq = h?.userData.eq || null;
     mostrarFicha(eq); if (eq?.dado && aoAbrir) aoAbrir(eq.dado);
+    if (eq) { const dx = C.position.x - O.target.x, dz = C.position.z - O.target.z, dist = Math.min(30, Math.hypot(dx, dz)) || 20, a = Math.atan2(dz, dx); voar([eq.x + Math.cos(a) * dist * .7, Math.max(9, Math.min(C.position.y, 18)), eq.z + Math.sin(a) * dist * .7], [eq.x, 1, eq.z], .05); }
   };
   const onMove = (e) => { if (tv || e.buttons) return; const n = performance.now(); if (n - ultimoHover < 60) return; ultimoHover = n; R.domElement.style.cursor = acertar(e) ? 'pointer' : 'grab'; };
   R.domElement.addEventListener('pointerdown', onDown); R.domElement.addEventListener('pointerup', onUp); R.domElement.addEventListener('pointermove', onMove);
@@ -1047,6 +1062,8 @@ export async function criarPlanta3D(el, { tv = false, aoAbrir = null, aoParar = 
       feixeMt.opacity = .6 + .4 * Math.sin(t * 3);
       equips.forEach((eq) => Object.values(eq.prev).forEach((mk) => { if (mk.st === 'atrasada') mk.anel.scale.setScalar(1 + .08 * Math.sin(t * 4)); }));
       selAnel.material.opacity = .6 + .4 * Math.sin(t * 3);
+      if (selOnda.visible && selecionada) { const f = (t * .6) % 1; selOnda.scale.setScalar((selecionada.r + .6) * (1 + f * 1.4)); selOnda.material.opacity = .7 * (1 - f); }
+      if (etFlutua) etFlutua.et.position.y = etFlutua.topo + 1.3 + .25 * Math.sin(t * 2.4);
     }
     equips.forEach((eq) => {
       const d = C.position.distanceTo(eq.et.position);

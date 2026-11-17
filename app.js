@@ -1,7 +1,7 @@
 // =====================================================================
 // GESTÃO DE PREVENTIVAS · Vetore — telas e navegação
 //
-// Endereços (hash):  #painel · #cal-al · #cal-pps · #cal-fornos · #layout · #layout-pps
+// Endereços (hash):  #painel · #tv (quadro para monitor) · #cal-al · #cal-pps · #cal-fornos · #layout · #layout-pps
 //   #layout-fornos · #registros · #etiquetas · #m-vtia-07 (formulário pelo QR)
 //   #r-<id> (relatório) · #feriados
 // Perfis: manutentor (preenche e assina), supervisor da área e gerente de
@@ -14,10 +14,11 @@ import { registros, reprogramar, aoMudar, aoErro, ligar, carregar, folgasExtra, 
 import { nomeArquivo, salvarArquivo, gerarPDF } from './relatorio.js';
 import { instalarApp, estaInstalado } from './pwa.js';
 import { EMAIL_DOMINIO } from './config.js';
-import { esc, ic, dataBR, diaMes, semana, quando, abrirModal, toast, dataHoraBR, duracao, paraData } from './ui.js';
+import { esc, ic, dataBR, diaMes, semana, quando, abrirModal, toast, dataHoraBR, duracao, paraData, contarNumeros, esqueleto } from './ui.js';
 import { telaFormulario, telaEnviado, telaRelatorio, confirmarExclusao } from './form.js';
 import { telaAcoes, telaHistorico, telaIndicadores, telaAvisos, telaVerificacao, stAcao } from './telas.js';
 import { acoes } from './store.js';
+import { telaTV, sairTV } from './tv.js';
 
 const URL_APP = location.origin + '/';
 const app = document.getElementById('app');
@@ -38,6 +39,9 @@ const ABAS = [
 ];
 const TITULOS = { painel: 'Painel', calendario: 'Calendário', layout: 'Layout 3D', registros: 'Registros', acoes: 'Plano de ação', indicadores: 'Indicadores', feriados: 'Feriados', avisos: 'Avisos', etiquetas: 'Etiquetas QR' };
 const menuFixo = () => pref('prev-menu-fixo') === '1';
+// tema: escuro (padrão, chão de fábrica) ou claro (escritório), lembrado no aparelho
+const temaClaro = () => pref('prev-tema') === 'claro';
+document.body.classList.toggle('claro', temaClaro());
 const dataExtenso = () => { const t = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); return t.charAt(0).toUpperCase() + t.slice(1); };
 // Mesmo layout do Gestão de Fluidos: menu lateral (recolhido em ícones, abre ao passar o
 // cursor, ou fixo — lembrado no aparelho) e cabeçalho com o banner da Vetore.
@@ -60,6 +64,7 @@ function casca(rota) {
         <div class="top-logo">Gestão de Preventivas</div>
         <div class="top-titles"><div class="top-data">${esc(dataExtenso())}</div><h1>${titulo}</h1></div>
         <div class="top-right">
+          <button type="button" class="icon-btn btn-tema" data-tema aria-label="${temaClaro() ? 'Usar tema escuro' : 'Usar tema claro'}" title="${temaClaro() ? 'Usar tema escuro' : 'Usar tema claro'}">${ic(temaClaro() ? 'lua' : 'sol')}</button>
           ${estaInstalado() ? '' : `<button type="button" class="btn btn-sec btn-install" data-instalar>${ic('baixar')}<span>Instalar app</span></button>`}
           <span class="ola" title="${esc(usuario?.email || '')}">Olá, ${PERFIS[perfil]}</span>
           <button type="button" class="icon-btn top-sair" data-sair aria-label="Sair">${ic('logout')}</button>
@@ -70,6 +75,7 @@ function casca(rota) {
     </div>
   </div>`;
   const bi = app.querySelector('[data-instalar]'); if (bi) bi.onclick = () => instalarApp();
+  app.querySelector('[data-tema]').onclick = () => { pref('prev-tema', temaClaro() ? 'escuro' : 'claro'); document.body.classList.toggle('claro', temaClaro()); rotear(); };
   app.querySelectorAll('[data-sair]').forEach((b) => { b.onclick = () => sb.auth.signOut(); });
   const shell = app.querySelector('.shell'), bf = app.querySelector('[data-fixar]');
   const pintar = () => { const f = shell.classList.contains('fixo'); bf.innerHTML = ic('menu'); bf.title = f ? 'Recolher o menu (abre ao passar o cursor)' : 'Fixar o menu aberto'; bf.setAttribute('aria-label', bf.title); bf.setAttribute('aria-pressed', String(f)); };
@@ -134,23 +140,25 @@ function painel(el) {
     const l = lista.filter((i) => i.setor === s); const f = l.filter((i) => i.st === 'concluida').length;
     return { s, f, t: l.length };
   });
+  const feitasMes = cont('concluida');
+  const ehHoje = p0 && p0.data === h;
   el.innerHTML = `<div class="pag">
+    <div class="pag-acoes"><a class="btn btn-sec btn-sm" href="#tv" title="Tela cheia para o monitor do setor">${ic('tv')} Modo TV</a></div>
     <section class="hero">
       ${p0 ? `<div class="hero-prox">
-        <p class="eyebrow">Próxima preventiva</p>
+        <p class="eyebrow ${ehHoje ? 'eyebrow-hoje' : ''}">${ehHoje ? `<span class="pulso"></span>Hoje · ${SETORES[p0.setor].curto}` : 'Próxima preventiva'}</p>
         <h1><span>${esc(p0.codigo)}</span><small>${esc(porCodigo[p0.codigo].equipamento)} · ${esc(porCodigo[p0.codigo].modelo)}</small></h1>
         <p class="hero-data"><b>${semana(p0.data)}, ${dataBR(p0.data)}</b> · ${quando(p0.dias)}${p0.reprogramada ? ' · reprogramada' : ''}</p>
         <div class="f-btns"><a class="btn btn-pri" href="#m-${porCodigo[p0.codigo].slug}">Abrir formulário</a><button type="button" class="btn btn-sec" data-prog="${p0.id}">Detalhes</button></div>
       </div>` : '<div class="hero-prox"><h1>Sem preventivas em aberto</h1></div>'}
       <div class="kpis">
         <p class="eyebrow">${nomeMes(cicloRef)}</p>
-        <div class="kpi"><b>${doMes.length}</b><span>programadas</span></div>
-        <div class="kpi" style="--c:${ST.concluida.cor}"><b>${cont('concluida')}</b><span>concluídas</span></div>
-        <div class="kpi" style="--c:${ST.ag_sup.cor}"><b>${cont('ag_sup') + cont('ag_ger')}</b><span>aguardando assinaturas</span></div>
-        <div class="kpi" style="--c:${ST.atrasada.cor}"><b>${atrasadas.length}</b><span>atrasadas (total)</span></div>
-        <div class="kpi-barra"><i style="width:${doMes.length ? (cont('concluida') / doMes.length * 100) : 0}%"></i></div>
+        <div class="anel-lin">${anelHtml(feitasMes, doMes.length)}<div><b class="anel-num" data-contar>${feitasMes} de ${doMes.length}</b><span class="muted">feitas no mês</span></div></div>
+        <div class="kpi" style="--c:${ST.ag_sup.cor}"><b data-contar>${cont('ag_sup') + cont('ag_ger')}</b><span>aguardando assinaturas</span></div>
+        <div class="kpi" style="--c:${atrasadas.length ? ST.atrasada.cor : ST.concluida.cor}"><b data-contar>${atrasadas.length}</b><span>atrasadas (total)</span></div>
       </div>
     </section>
+    ${semanaHtml(lista, h)}
     <div class="col2">
       <section class="bloco">
         <div class="bloco-topo"><h2>Próximas preventivas</h2><a href="#calendario" class="link">Calendário completo</a></div>
@@ -168,7 +176,36 @@ function painel(el) {
       </div>
     </div>
   </div>`;
-  ligarItens(el);
+  ligarItens(el); contarNumeros(el);
+}
+
+// anel de progresso do mês
+function anelHtml(f, t) {
+  const pct = t ? Math.round(f / t * 100) : 0;
+  return `<svg class="anel" viewBox="0 0 36 36" role="img" aria-label="${pct}% feitas"><circle cx="18" cy="18" r="15.9" class="anel-fundo"></circle>
+    <circle cx="18" cy="18" r="15.9" class="anel-val" style="stroke-dasharray:${pct} 100"></circle><text x="18" y="21.2" text-anchor="middle">${pct}%</text></svg>`;
+}
+// linha do tempo da semana: seg a sex, uma linha por setor, marca "agora"
+function semanaHtml(lista, h) {
+  let seg = segunda(h); if (fimSemana(h)) seg = somaDias(seg, 7);
+  const dias = [0, 1, 2, 3, 4].map((k) => somaDias(seg, k));
+  const nomes = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
+  const doDia = (d, s) => lista.filter((i) => i.data === d && i.setor === s);
+  const idx = dias.indexOf(h);
+  const agora = new Date(); const frac = Math.min(1, Math.max(0, (agora.getHours() + agora.getMinutes() / 60 - 6) / 12));
+  const bloco = (i) => `<button type="button" class="sem-bl st-${i.st}" data-prog="${i.id}" title="${esc(i.codigo)} · ${ST[i.st].nome}"><b>${esc(i.codigo)}</b><small>${i.st === 'concluida' ? 'Feita' : aguardando(i.st) ? ST[i.st].nome : esc(porCodigo[i.codigo].modelo)}</small></button>`;
+  const fim = dias[4];
+  const titulo = `Semana · ${+seg.slice(8)}${seg.slice(5, 7) !== fim.slice(5, 7) ? ' de ' + MESES[+seg.slice(5, 7) - 1] : ''} a ${+fim.slice(8)} de ${MESES[+fim.slice(5, 7) - 1]}`;
+  const temAlgo = lista.some((i) => i.data >= seg && i.data <= fim);
+  return `<section class="bloco sem-bloco">
+    <div class="bloco-topo"><h2>${titulo}</h2><div class="sem-leg"><span><i class="lg-ok"></i>Feita</span><span><i class="lg-hoje"></i>Hoje</span><span><i class="lg-ag"></i>Assinando</span><span><i class="lg-atr"></i>Atrasada</span><span><i class="lg-prog"></i>Programada</span></div></div>
+    ${temAlgo ? '' : '<p class="sub">Nenhuma parada para preventiva nesta semana.</p>'}
+    <div class="sem-scroll"><div class="sem-grade" style="--hoje:${idx}">
+      <div></div>${dias.map((d, k) => `<div class="sem-dia ${d === h ? 'sem-dia-hoje' : ''}">${nomes[k]} ${+d.slice(8)}${d === h ? ' · hoje' : ''}</div>`).join('')}
+      ${Object.keys(SETORES).map((s) => `<div class="sem-setor"><i style="background:${corSetor[s]}"></i>${SETORES[s].curto}</div>${dias.map((d) => `<div class="sem-cel ${d === h ? 'sem-cel-hoje' : ''}${folgas()[d] ? ' sem-folga' : ''}">${folgas()[d] && !doDia(d, s).length ? `<small class="muted">${esc(folgas()[d])}</small>` : doDia(d, s).map(bloco).join('')}</div>`).join('')}`).join('')}
+      ${idx >= 0 ? `<div class="sem-agora" style="--f:${frac}"><span>agora</span></div>` : ''}
+    </div></div>
+  </section>`;
 }
 
 // clique numa preventiva/máquina abre o detalhe
@@ -441,6 +478,8 @@ function feriados(el) {
 function rotear() {
   const rota = (location.hash || '#painel').slice(1) || 'painel';
   window.scrollTo(0, 0);
+  if (rota === 'tv') { telaTV(app); return; }
+  sairTV();
   if (rota.startsWith('m-')) {
     const m = porSlug[rota.slice(2)];
     const el = casca(rota);
@@ -483,7 +522,7 @@ async function entrar(session) {
   if (error) return telaAviso('Erro ao carregar o perfil', esc(error.message), '<button class="btn btn-pri" data-rec>Recarregar</button>');
   if (!data) return telaAviso('Login sem perfil', `O usuário <b>${esc(usuario.email)}</b> entrou, mas ainda não tem perfil. Rode o script <b>02_perfis.sql</b> no Supabase com este e-mail.`, '<button class="btn btn-sec" data-sair>Sair</button>');
   perfil = data.perfil;
-  app.innerHTML = '<p class="carregando">Carregando preventivas…</p>';
+  app.innerHTML = esqueleto('Carregando preventivas');
   try { await carregar(); } catch (e) { return telaAviso('Sem conexão com o banco', esc(e.message || e), '<button class="btn btn-pri" data-rec>Tentar de novo</button>'); }
   rodando = true; rotear();
 }

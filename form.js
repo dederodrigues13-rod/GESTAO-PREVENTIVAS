@@ -30,7 +30,39 @@ export function padAssinatura(canvas) {
   const fim = () => { ult = null; canvas.dispatchEvent(new Event('assinou')); };
   canvas.addEventListener('pointerup', fim); canvas.addEventListener('pointercancel', fim);
   new ResizeObserver(ajustar).observe(canvas); ajustar();
-  return { vazio: () => riscos === 0, limpar: () => { riscos = 0; ctx.clearRect(0, 0, canvas.width, canvas.height); }, imagem: () => canvas.toDataURL('image/png') };
+  const api = { vazio: () => riscos === 0, limpar: () => { riscos = 0; ctx.clearRect(0, 0, canvas.width, canvas.height); }, imagem: () => canvas.toDataURL('image/png'),
+    // recebe a assinatura feita em tela cheia, encaixada no quadro sem distorcer
+    colar: (url) => new Promise((ok) => { const i = new Image(); i.onload = () => { const r = canvas.getBoundingClientRect(); const k = Math.min(r.width / i.width, r.height / i.height); const w = i.width * k, h = i.height * k;
+      ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(i, (r.width - w) / 2, (r.height - h) / 2, w, h); riscos = 1; canvas.dispatchEvent(new Event('assinou')); ok(); }; i.src = url; }) };
+  // botão "Assinar em tela cheia" ligado a este quadro
+  const bt = document.querySelector(`[data-cheia-pad="${canvas.id}"]`); if (bt) bt.onclick = () => assinarTelaCheia(api, bt.dataset.rotulo || 'Assinatura');
+  return api;
+}
+
+// assinatura em tela cheia: o celular deitado vira um quadro grande (mais fácil e mais bonita)
+async function assinarTelaCheia(padPequeno, rotulo) {
+  const cena = document.createElement('div'); cena.className = 'ass-cheia';
+  cena.innerHTML = `<div class="ass-cheia-lado"><span class="eyebrow">Assinatura</span><b>${esc(rotulo)}</b>
+      <p class="sub ass-gire">Gire o celular para deitado: fica maior.</p>
+      <button type="button" class="btn btn-pri" data-usar>Usar esta assinatura</button><button type="button" class="btn btn-sec" data-lmp>Limpar</button><button type="button" class="link" data-cancelar>Cancelar</button></div>
+    <div class="ass-cheia-area"><canvas aria-label="Assine com o dedo"></canvas><span>Assine com o dedo em qualquer lugar da área clara</span></div>`;
+  document.body.append(cena); document.body.classList.add('sem-rolagem');
+  try { await document.documentElement.requestFullscreen?.(); await screen.orientation?.lock?.('landscape'); } catch (e) { /* o celular não deixa travar: segue assim mesmo */ }
+  const grande = padAssinatura(cena.querySelector('canvas'));
+  const fechar = async () => { try { screen.orientation?.unlock?.(); if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) { /* ok */ } cena.remove(); document.body.classList.remove('sem-rolagem'); };
+  cena.querySelector('[data-lmp]').onclick = () => grande.limpar();
+  cena.querySelector('[data-cancelar]').onclick = fechar;
+  cena.querySelector('[data-usar]').onclick = async () => { if (grande.vazio()) { toast('Assine na área clara primeiro.', 'erro'); return; } const url = recortar(cena.querySelector('canvas')); await fechar(); await padPequeno.colar(url); };
+}
+// tira a sobra em branco em volta da assinatura
+function recortar(c) {
+  const ctx = c.getContext('2d'), { width: w, height: h } = c, d = ctx.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = 0, y1 = 0;
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) if (d[(y * w + x) * 4 + 3] > 10) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 <= x0) return c.toDataURL('image/png');
+  const m = 12; x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(w, x1 + m); y1 = Math.min(h, y1 + m);
+  const o = document.createElement('canvas'); o.width = x1 - x0; o.height = y1 - y0; o.getContext('2d').drawImage(c, x0, y0, o.width, o.height, 0, 0, o.width, o.height);
+  return o.toDataURL('image/png');
 }
 
 const blocoAssinatura = (id, rotulo) => `
@@ -39,7 +71,7 @@ const blocoAssinatura = (id, rotulo) => `
     <input id="${id}-nome" class="campo" autocomplete="name" placeholder="Nome completo" list="${id}-lista" />
     <datalist id="${id}-lista">${nomesUsados().map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
     <canvas class="ass-pad" id="${id}-pad" aria-label="Área para assinar com o dedo"></canvas>
-    <p class="ass-dica">Assine com o dedo dentro do quadro</p>
+    <div class="ass-pe"><p class="ass-dica">Assine com o dedo dentro do quadro</p><button type="button" class="btn btn-sec btn-sm" data-cheia-pad="${id}-pad" data-rotulo="${esc(rotulo)}">${ic('tela')} Assinar em tela cheia</button></div>
   </div>`;
 
 // ---------- formulário ----------
@@ -67,15 +99,19 @@ export function telaFormulario(el, { maq, item, aoTerminar }) {
       <h1>${esc(m.codigo)}</h1>
       <p class="sub">${esc(m.equipamento)} · ${esc(m.modelo)} · ${esc(SETORES[m.setor].curto)}</p>
       ${item ? `<p class="ciclo">Preventiva de <b>${MESES[+mm - 1]}/${a}</b> · data sugerida ${semana(item.data)}, ${dataBR(item.data)}${item.reprogramada ? ' (reprogramada)' : ''}</p>` : ''}
-      ${foraJanela ? `<p class="aviso">${ic('alert')} Esta máquina só entra em preventiva em ${MESES[+mm - 1]}. Registrando agora, ela conta como <b>antecipada</b>.</p>` : ''}
-      ${item?.st === 'atrasada' ? `<p class="aviso aviso-red">${ic('alert')} Preventiva atrasada: a janela era ${MESES[+mm - 1]}/${a}.</p>` : ''}
+      ${foraJanela ? `<p class="aviso">${ic('alert')}<span>Esta máquina só entra em preventiva em ${MESES[+mm - 1]}. Registrando agora, ela conta como <b>antecipada</b>.</span></p>` : ''}
+      ${item?.st === 'atrasada' ? `<p class="aviso aviso-red">${ic('alert')}<span>Preventiva atrasada: a janela era ${MESES[+mm - 1]}/${a}.</span></p>` : ''}
       <div class="form-dados">
         <div><span>Início</span><b>${dataHoraBR(r.inicio)}</b></div>
         <div><span>Tempo até agora</span><b data-tempo>${duracao(Date.now() - r.inicio)}</b></div>
       </div>
     </section>
+    <div class="modo-form"><span>Responder</span><div class="seg-modo" role="radiogroup" aria-label="Jeito de responder">
+      <button type="button" role="radio" data-modo="passo">Um item por vez</button><button type="button" role="radio" data-modo="lista">Lista completa</button></div></div>
+    <div data-passo></div>
     <div data-secoes></div>
     <div class="add-secoes" data-add></div>
+    <div class="form-resto">
     <section class="bloco">
       <h2>Plano de ação</h2>
       <p class="sub">Cada item marcado como NOK entra aqui sozinho. Preencha quem resolve e até quando.</p>
@@ -94,6 +130,7 @@ export function telaFormulario(el, { maq, item, aoTerminar }) {
       <button type="button" class="btn btn-pri btn-grande" data-concluir>${ic('pena')} Concluir e assinar</button>
       <p class="sub centro">Depois de assinar, procure o supervisor da área. Em seguida assina o gerente de manutenção.</p>
     </section>
+    </div>
   </div>`;
   const $ = (s) => el.querySelector(s);
 
@@ -119,8 +156,56 @@ export function telaFormulario(el, { maq, item, aoTerminar }) {
     }).join('');
     const faltam = ORDEM_SECOES.filter((k) => !r.secoes.includes(k));
     $('[data-add]').innerHTML = faltam.length ? `<span>Adicionar seção:</span>${faltam.map((k) => `<button type="button" class="chip" data-addsec="${k}">${ic('plus')}${esc(SECOES[k].titulo.split(' · ')[0])}</button>`).join('')}` : '';
-    desenharPlano(); progresso(); carregarMiniaturas($('[data-secoes]'));
+    desenharPlano(); progresso(); carregarMiniaturas($('[data-secoes]')); desenharPasso();
   }
+  // ---------- um item por vez (celular) ----------
+  let modo = (() => { try { return localStorage.getItem('prev-modo-form'); } catch { return null; } })() || (matchMedia('(max-width: 760px)').matches ? 'passo' : 'lista');
+  const chaves = () => r.secoes.flatMap((k) => SECOES[k].itens.map((_, i) => `${k}.${i}`));
+  let pi = chaves().findIndex((k) => !r.respostas[k]?.v); if (pi < 0) pi = chaves().length;
+  const vibrar = () => { try { navigator.vibrate?.(15); } catch (e) { /* sem vibração */ } };
+  function desenharPasso() {
+    const f = $('.form'); f.classList.toggle('passo', modo === 'passo');
+    el.querySelectorAll('[data-modo]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.modo === modo)));
+    const box = $('[data-passo]'); if (modo !== 'passo') { box.innerHTML = ''; f.classList.remove('passo-fim'); return; }
+    const ks = chaves(), feitos = ks.filter((k) => r.respostas[k]?.v).length, fim = feitos === ks.length && pi >= ks.length;
+    f.classList.toggle('passo-fim', fim);
+    if (fim) {
+      const c = (v) => ks.filter((k) => r.respostas[k]?.v === v).length;
+      box.innerHTML = `<section class="bloco passo-ok"><div class="passo-check">${ic('check', 'ic-lg')}</div><h2>Todos os itens respondidos</h2>
+        <p class="sub">${c('ok')} OK · ${c('nok')} NOK · ${c('na')} N.A.</p><div class="f-btns"><button type="button" class="btn btn-sec" data-pnav="rever">Revisar do começo</button></div>
+        <p class="sub">Agora confira o plano de ação e assine logo abaixo.</p></section>`;
+      return;
+    }
+    pi = Math.min(Math.max(0, pi), ks.length - 1);
+    const key = ks[pi], [sk, si] = key.split('.'), v = r.respostas[key] || {}, sec = SECOES[sk];
+    const nSec = r.secoes.indexOf(sk) + 1;
+    box.innerHTML = `<section class="bloco passo-card" data-k="${key}">
+      <div class="passo-topo"><span class="eyebrow">${esc(sec.titulo.split(' · ')[0])} · seção ${nSec} de ${r.secoes.length}</span><span class="muted">Item ${+si + 1} de ${sec.itens.length}</span></div>
+      <div class="passo-trilhos">${r.secoes.map((k) => { const t = SECOES[k].itens.length, d = SECOES[k].itens.filter((_, i) => r.respostas[`${k}.${i}`]?.v).length; return `<i style="flex:${t}"><b style="width:${d / t * 100}%"></b></i>`; }).join('')}</div>
+      <p class="passo-txt">${esc(sec.itens[+si])}</p>
+      ${v.v === 'nok' ? `<div class="nok passo-nok">
+        <label>O que foi encontrado?<textarea class="campo" rows="2" data-f="obs">${esc(v.obs || '')}</textarea></label>
+        <label>Ação a fazer<input class="campo" data-f="acao" value="${esc(v.acao || '')}" placeholder="Ex.: trocar mangueira de retorno" /></label>
+        <div class="nok-fotos">${miniaturas(v.fotos, true)}${botaoFoto('data-fotoinput', v.fotos?.length ? 'Mais uma foto' : 'Tirar foto')}</div>
+        <button type="button" class="btn btn-pri btn-grande" data-pnav="prox">Continuar</button></div>` : ''}
+      <div class="passo-bts">
+        <button type="button" class="pb pb-nok ${v.v === 'nok' ? 'on' : ''}" data-pv="nok">${ic('x', 'ic-lg')}NOK</button>
+        <button type="button" class="pb pb-ok ${v.v === 'ok' ? 'on' : ''}" data-pv="ok">${ic('check', 'ic-lg')}OK</button>
+      </div>
+      <div class="passo-pe"><button type="button" class="link" data-pnav="-1" ${pi === 0 ? 'disabled' : ''}>‹ Item anterior</button>
+        <button type="button" class="pb-na ${v.v === 'na' ? 'on' : ''}" data-pv="na">Não se aplica</button>
+        <button type="button" class="link" data-pnav="1" ${v.v ? '' : 'disabled'}>Próximo ›</button></div>
+    </section>`;
+    carregarMiniaturas(box);
+  }
+  function responderPasso(valor) {
+    const ks = chaves(), key = ks[pi]; r.respostas[key] = { ...(r.respostas[key] || {}), v: valor }; salvar(); vibrar();
+    if (valor !== 'nok') { const prox = ks.findIndex((k, j) => j > pi && !r.respostas[k]?.v); pi = prox >= 0 ? prox : (ks.every((k) => r.respostas[k]?.v) ? ks.length : pi + 1); }
+    desenharSecoes();
+    if (valor === 'nok') $('[data-passo] textarea')?.focus();
+    else $('[data-passo]')?.scrollIntoView({ block: 'nearest' });
+  }
+
   function desenharPlano() {
     const auto = r.secoes.flatMap((k) => SECOES[k].itens.map((t, i) => ({ key: `${k}.${i}`, t, k, i }))).filter((x) => r.respostas[x.key]?.v === 'nok');
     // linhas automáticas (NOK) + manuais
@@ -145,6 +230,10 @@ export function telaFormulario(el, { maq, item, aoTerminar }) {
   el.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const li = b.closest('[data-k]');
+    if (b.dataset.pv) { responderPasso(b.dataset.pv); return; }
+    if (b.dataset.pnav) { const ks = chaves(), prox = ks.findIndex((k, j) => j > pi && !r.respostas[k]?.v);
+      pi = b.dataset.pnav === 'rever' ? 0 : b.dataset.pnav === 'prox' ? (prox >= 0 ? prox : ks.every((k) => r.respostas[k]?.v) ? ks.length : pi + 1) : Math.min(ks.length, Math.max(0, pi + +b.dataset.pnav)); desenharPasso(); $('[data-passo]')?.scrollIntoView({ block: 'nearest' }); return; }
+    if (b.dataset.modo) { modo = b.dataset.modo; try { localStorage.setItem('prev-modo-form', modo); } catch { /* ok */ } if (modo === 'passo') { pi = chaves().findIndex((k) => !r.respostas[k]?.v); if (pi < 0) pi = chaves().length; } desenharSecoes(); return; }
     if (b.dataset.v && li) {
       const k = li.dataset.k, atual = r.respostas[k] || {};
       r.respostas[k] = { ...atual, v: b.dataset.v }; salvar();
@@ -266,7 +355,7 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
         ${blocoAssinatura('ass', etapa[1])}
         <div class="erros" data-erros hidden></div>
         <button type="button" class="btn btn-pri btn-grande" data-assinar>${ic('pena')} Assinar como ${etapa[1].toLowerCase()}</button></section>`
-      : `<p class="aviso">${ic('relogio')} Falta a assinatura do ${etapa[1].toLowerCase()}${r.status === 'ag_sup' ? ' e, depois, a do gerente de manutenção' : ''}.</p>`) : ''}
+      : `<p class="aviso">${ic('relogio')}<span>Falta a assinatura do ${etapa[1].toLowerCase()}${r.status === 'ag_sup' ? ' e, depois, a do gerente de manutenção' : ''}.</span></p>`) : ''}
     <div class="folhas" data-folhas>${folhasA4(r, m)}</div>
   </div>`;
   // folhas A4 cabendo na largura da tela
@@ -311,7 +400,18 @@ export function telaRelatorio(el, { id, perfil, maqDe }) {
       if (r.status === 'concluida') await recarregarRegistro(id).catch(() => {}); // traz o selo gerado pelo banco
       toast(r.status === 'concluida' ? `${r.codigo}: preventiva concluída.` : `${r.codigo}: assinado. Agora falta o gerente.`);
       telaRelatorio(el, { id, perfil, maqDe }); window.scrollTo(0, 0);
-      if (r.status === 'concluida') guardar();
+      if (r.status === 'concluida') { carimbo(obterRegistro(id)); guardar(); }
     };
   }
+}
+
+// carimbo animado quando o gerente conclui (uma vez, some sozinho)
+function carimbo(r) {
+  const c = document.createElement('div');
+  c.className = 'carimbo-cena'; c.setAttribute('role', 'status');
+  c.innerHTML = `<div class="carimbo">${ic('escudo', 'ic-lg')}<b>AUTÊNTICO</b><span>CONCLUÍDA · 3 ASSINATURAS</span>${r?.selo ? `<small>${esc(r.selo.slice(0, 8).toUpperCase())}-${esc(r.selo.slice(8, 16).toUpperCase())}</small>` : ''}</div>`;
+  document.body.append(c);
+  c.onclick = () => c.remove();
+  setTimeout(() => c.classList.add('sai'), 1900);
+  setTimeout(() => c.remove(), 2400);
 }

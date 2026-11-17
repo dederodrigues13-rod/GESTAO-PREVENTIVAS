@@ -49,6 +49,11 @@ const P = {
   excel: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m8 13 4 4M12 13l-4 4"/>',
   escudo: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
   relogio: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  tv: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  play: '<path d="M7 4.5v15l12-7.5z"/>',
+  sol: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  lua: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  tela: '<path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/>',
 };
 export const ic = (nome, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[nome] || ''}</svg>`;
 
@@ -69,3 +74,20 @@ export function abrirModal({ titulo, html, onAbrir }) {
   document.body.append(fundo); onAbrir?.(fundo.querySelector('.modal-corpo'), fechar);
   return fechar;
 }
+
+// números que sobem ao abrir a tela (mantém o que vem depois do número: "%", "/12"...)
+export function contarNumeros(el, seletor = '[data-contar]') {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  el.querySelectorAll(seletor).forEach((n) => {
+    const m = /^(\d+)(.*)$/s.exec(n.textContent.trim()); if (!m || +m[1] === 0) return;
+    const alvo = +m[1], resto = m[2], t0 = performance.now(), dur = 750;
+    const passo = (t) => { const p = Math.min(1, (t - t0) / dur); n.textContent = Math.round(alvo * (1 - Math.pow(1 - p, 3))) + resto; if (p < 1) requestAnimationFrame(passo); };
+    requestAnimationFrame(passo);
+  });
+}
+
+// esqueleto da tela enquanto os dados chegam (no lugar do "Carregando…")
+export const esqueleto = (rotulo = 'Carregando') => `<div class="pag esq-pag" role="status" aria-label="${rotulo}">
+  <div class="esq-hero"><div class="esq-col"><i class="esq" style="width:30%;height:14px"></i><i class="esq" style="width:55%;height:64px"></i><i class="esq" style="width:70%;height:16px"></i><i class="esq" style="width:180px;height:44px;margin-top:10px"></i></div>
+  <div class="esq-col"><i class="esq" style="width:40%;height:18px"></i><div class="esq-lin"><i class="esq" style="height:70px"></i><i class="esq" style="height:70px"></i></div><div class="esq-lin"><i class="esq" style="height:70px"></i><i class="esq" style="height:70px"></i></div></div></div>
+  <div class="esq-bloco"><i class="esq" style="width:25%;height:20px"></i>${'<i class="esq" style="height:52px"></i>'.repeat(4)}</div></div>`;
