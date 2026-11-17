@@ -629,3 +629,5 @@ textarea.campo { resize: vertical; }
   .ag .pill { grid-column: 2; justify-self: start; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.ajuda code { background: rgba(255,194,14,.12); color: #ffd75a; padding: 1px 5px; border-radius: 3px; font-size: .92em; user-select: all; }

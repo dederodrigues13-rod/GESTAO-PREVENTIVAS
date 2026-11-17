@@ -93,6 +93,7 @@ create table if not exists public.acoes (
   atualizado_em timestamptz not null default now()
 );
 create index if not exists acoes_status on public.acoes (status, prazo);
+create index if not exists acoes_registro on public.acoes (registro_id);
 
 -- quando o manutentor assina, cada linha do plano vira uma ação para acompanhar
 create or replace function public.criar_acoes()
@@ -151,6 +152,7 @@ create table if not exists public.config_avisos (
   id int primary key default 1 check (id = 1),
   ativo boolean not null default true,
   teams_webhook text,             -- endereço do fluxo "Postar em um canal quando receber uma solicitação de webhook" (Teams > Workflows)
+  outlook_webhook text,           -- fluxo do Workflows/Power Automate que envia e-mail pelo Outlook
   emails text,                    -- e-mails da gestão, separados por vírgula
   emails_pcp text,                -- e-mails do PCP (lista semanal de paradas, toda segunda)
   token text not null default encode(extensions.gen_random_bytes(16), 'hex'),
@@ -165,3 +167,5 @@ drop policy if exists "gestao altera avisos" on public.config_avisos;
 create policy "gestao altera avisos" on public.config_avisos for update to authenticated using (public.e_gestao()) with check (public.e_gestao());
 
 revoke execute on function public.criar_acoes(), public.acao_atualizada(), public.validar_registro() from public, anon, authenticated;
+
+alter table public.config_avisos add column if not exists outlook_webhook text;

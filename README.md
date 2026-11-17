@@ -61,4 +61,4 @@ Toda alteração salva no GitHub é publicada pela Vercel em cerca de 1 minuto.
 1. `03_melhorias.sql` – tabela de ações, fotos, selo e configuração dos avisos.
 2. Publicar a função `supabase/functions/avisos` (sem verificação de JWT).
 3. `04_avisos_agendamento.sql` – agenda o envio diário.
-4. E-mail é opcional: segredos `RESEND_API_KEY` e `AVISOS_REMETENTE` na função. O Teams funciona só com o link do Workflow.
+4. E-mail pelo Outlook: crie um fluxo no app Workflows do Teams (gatilho "Quando uma solicitação de webhook do Teams for recebida" → "Enviar um email (V2)" com Para/Assunto/Corpo = `triggerBody()?['para']`, `['assunto']`, `['html']`) e cole o endereço na tela Avisos. Os passos estão na própria tela.

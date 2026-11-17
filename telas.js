@@ -211,7 +211,7 @@ export async function telaAvisos(el) {
   let c; try { c = await lerAvisos(); } catch (e) { c = null; }
   if (!c) { el.innerHTML = `<div class="pag estreita"><p class="aviso">${ic('alert')}<span>A configuração dos avisos ainda não existe no banco. Falta aplicar a atualização do banco (script 03).</span></p></div>`; return; }
   el.innerHTML = `<div class="pag estreita">
-    <div class="pag-topo"><h1 class="tit">Avisos automáticos</h1><p class="sub">Todo dia útil às 6h30 o sistema confere o cronograma e avisa no Teams (e por e-mail, se configurado).</p></div>
+    <div class="pag-topo"><h1 class="tit">Avisos automáticos</h1><p class="sub">Todo dia útil às 6h30 o sistema confere o cronograma e avisa no Teams e/ou por e-mail no Outlook.</p></div>
     <section class="bloco"><h2>O que é enviado</h2><ul class="lista-simples">
       <li><b>Todo dia útil, para a gestão:</b> preventivas de hoje e do próximo dia útil, atrasadas, relatórios esperando assinatura há mais de 24 h e ações vencidas.</li>
       <li><b>Toda segunda-feira, para o PCP:</b> a lista de paradas programadas da semana (máquina, dia e setor).</li>
@@ -226,19 +226,28 @@ export async function telaAvisos(el) {
         <li>Escolha <b>"Postar em um canal quando uma solicitação de webhook for recebida"</b>.</li>
         <li>Confirme o canal, clique em <b>Adicionar fluxo</b> e copie o endereço que aparece no fim.</li>
         <li>Cole aqui e salve. Depois use <b>Enviar teste agora</b>.</li></ol></details>
+      <label class="lbl" for="ow">Outlook · endereço do fluxo (envia os e-mails pelo seu Outlook)</label>
+      <input id="ow" class="campo" value="${esc(c.outlook_webhook || '')}" placeholder="https://...powerplatform.com/... ou https://...logic.azure.com/..." />
+      <details class="ajuda"><summary>Como criar o fluxo do Outlook (5 minutos, sem licença extra)</summary><ol>
+        <li>No Teams, abra o app <b>Fluxos de trabalho</b> (Workflows) → <b>Criar</b> → <b>Criar do zero</b>.</li>
+        <li>Gatilho: <b>"Quando uma solicitação de webhook do Teams for recebida"</b>. Em <b>Quem pode disparar o fluxo</b>, escolha <b>Qualquer pessoa</b>.</li>
+        <li>Nova etapa: <b>Office 365 Outlook → Enviar um email (V2)</b>.</li>
+        <li><b>Para</b>: aba <i>Expressão</i> → <code>triggerBody()?['para']</code><br><b>Assunto</b>: <code>triggerBody()?['assunto']</code><br><b>Corpo</b>: <code>triggerBody()?['html']</code></li>
+        <li>Salve, abra o gatilho de novo e copie o <b>endereço HTTP</b>. Cole aqui, preencha os e-mails abaixo e use <b>Enviar teste agora</b>.</li>
+        <li>Os e-mails saem da conta de quem criou o fluxo.</li></ol></details>
       <label class="lbl" for="em">E-mails da gestão (separados por vírgula)</label>
       <input id="em" class="campo" value="${esc(c.emails || '')}" placeholder="supervisor@empresa.com.br, gerente@empresa.com.br" />
       <label class="lbl" for="ep">E-mails do PCP · lista semanal de paradas</label>
       <input id="ep" class="campo" value="${esc(c.emails_pcp || '')}" placeholder="pcp@empresa.com.br" />
-      <p class="sub">E-mail precisa de uma configuração única no Supabase (serviço de envio). Enquanto não estiver configurado, os avisos vão só para o Teams. Para o PCP sem e-mail, o resumo da segunda também vai para o Teams.</p>
+      <p class="sub">Os e-mails saem pelo fluxo do Outlook acima. Sem o fluxo do Outlook, os avisos vão só para o Teams (o resumo do PCP da segunda também aparece no Teams).</p>
       <div class="linha-btn"><button type="button" class="btn btn-sec" data-teste>${ic('sino')} Enviar teste agora</button><button type="button" class="btn btn-pri" data-salvar>Salvar</button></div>
       <p class="sub" data-res>${c.ultimo_envio ? `Último envio: ${dataHoraBR(c.ultimo_envio)} · ${esc(c.ultimo_resultado || '')}` : 'Nenhum envio ainda.'}</p>
     </section></div>`;
-  const ler = () => ({ ativo: el.querySelector('[data-ativo]').checked, teams_webhook: el.querySelector('#tw').value.trim() || null, emails: el.querySelector('#em').value.trim() || null, emails_pcp: el.querySelector('#ep').value.trim() || null });
+  const ler = () => ({ ativo: el.querySelector('[data-ativo]').checked, teams_webhook: el.querySelector('#tw').value.trim() || null, outlook_webhook: el.querySelector('#ow').value.trim() || null, emails: el.querySelector('#em').value.trim() || null, emails_pcp: el.querySelector('#ep').value.trim() || null });
   el.querySelector('[data-salvar]').onclick = async () => { try { await salvarAvisos(ler()); toast('Avisos salvos.'); } catch (e) { toast('Não foi gravado: ' + (e?.message || e), 'erro'); } };
   el.querySelector('[data-teste]').onclick = async (ev) => {
     const b = ev.currentTarget; b.disabled = true; b.textContent = 'Enviando…';
-    try { await salvarAvisos(ler()); const r = await testarAvisos(); el.querySelector('[data-res]').textContent = 'Teste: ' + (r?.resultado || 'enviado'); toast('Teste enviado. Confira o Teams.'); }
+    try { await salvarAvisos(ler()); const r = await testarAvisos(); el.querySelector('[data-res]').textContent = 'Teste: ' + (r?.resultado || 'enviado'); toast('Teste enviado. Confira o Teams e o Outlook.'); }
     catch (e) { el.querySelector('[data-res]').textContent = 'Teste falhou: ' + (e?.message || e); toast('O teste falhou.', 'erro'); }
     b.disabled = false; b.innerHTML = `${ic('sino')} Enviar teste agora`;
   };

@@ -1,10 +1,11 @@
-// Avisos automáticos da Gestão de Preventivas (Teams e e-mail)
+// Avisos automáticos da Gestão de Preventivas (Teams e e-mail pelo Outlook)
 // Chamado todo dia útil às 6h30 pelo agendador do banco (pg_cron) com o token
 // da tabela config_avisos, ou pelo botão "Enviar teste agora" (login da gestão).
-// E-mail: opcional, precisa do segredo RESEND_API_KEY (e AVISOS_REMETENTE) no Supabase.
+// E-mail: pelo fluxo do Outlook (config_avisos.outlook_webhook) ou, como alternativa, pelo Resend (segredo RESEND_API_KEY).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { montarAvisos, cartaoTeams, emailHtml } from './avisos-core.js';
 import { hojeEm } from './regras.js';
+import { FERIADOS_NACIONAIS } from './dados.js';
 
 const URL_APP = 'https://gestao-preventivas.vercel.app/';
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -41,7 +42,7 @@ Deno.serve(async (req: Request) => {
   const extras = Object.fromEntries((fo.data || []).map((x) => [x.data, x.nome]));
   const trabalha = (tr.data || []).map((x) => x.data);
   const w = new Date(hoje + 'T12:00:00Z').getUTCDay();
-  const folgaHoje = (extras[hoje] || (await import('./dados.js')).FERIADOS_NACIONAIS[hoje]) && !trabalha.includes(hoje);
+  const folgaHoje = (extras[hoje] || FERIADOS_NACIONAIS[hoje]) && !trabalha.includes(hoje);
   if (!teste && (w === 0 || w === 6 || folgaHoje)) return resp({ resultado: 'dia sem expediente' });
 
   const av = montarAvisos({ hoje, registros: r.data || [], reprog: Object.fromEntries((rp.data || []).map((x) => [x.prog_id, x.data])), extras, trabalha, acoes: ac.data || [], teste });
@@ -60,9 +61,20 @@ Deno.serve(async (req: Request) => {
     (e?.ok ? feitos : falhas).push(e?.ok ? rot : `${rot} (${e?.status || 'erro'})`);
   };
   const titulo = `${teste ? 'TESTE · ' : ''}Preventivas · ${hoje.split('-').reverse().join('/')}`;
-  if (av.secoes.length || teste) await mandar(lista(cfg.emails), titulo, emailHtml(titulo, av.secoes.length ? av.secoes : [{ titulo: 'Nada pendente', linhas: ['Tudo em dia.'] }], URL_APP), 'e-mail gestão');
-  if (av.pcp) await mandar(lista(cfg.emails_pcp), `${teste ? 'TESTE · ' : ''}${av.pcp.titulo}`, emailHtml(av.pcp.titulo, [av.pcp], URL_APP), 'e-mail PCP');
-  if (!cfg.teams_webhook && !(chave && (lista(cfg.emails).length || lista(cfg.emails_pcp).length))) falhas.push('nenhum destino configurado');
+  if ((av.secoes.length || teste) && !cfg.outlook_webhook) await mandar(lista(cfg.emails), titulo, emailHtml(titulo, av.secoes.length ? av.secoes : [{ titulo: 'Nada pendente', linhas: ['Tudo em dia.'] }], URL_APP), 'e-mail gestão');
+  if (av.pcp && !cfg.outlook_webhook) await mandar(lista(cfg.emails_pcp), `${teste ? 'TESTE · ' : ''}${av.pcp.titulo}`, emailHtml(av.pcp.titulo, [av.pcp], URL_APP), 'e-mail PCP');
+  // Outlook pelo Power Automate / Workflows: o fluxo recebe { para, assunto, html } e envia pelo Outlook de quem criou o fluxo
+  const outlook = async (para: string[], assunto: string, html: string, rot: string) => {
+    if (!cfg.outlook_webhook || !para.length) return;
+    const corpo = { para: para.join(';'), assunto, html, ...cartaoTeams(av, URL_APP, teste) };
+    const o = await fetch(cfg.outlook_webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }).catch(() => null);
+    (o?.ok ? feitos : falhas).push(o?.ok ? rot : `${rot} (${o?.status || 'erro'})`);
+  };
+  if (av.secoes.length || teste) await outlook(lista(cfg.emails), titulo, emailHtml(titulo, av.secoes.length ? av.secoes : [{ titulo: 'Nada pendente', linhas: ['Tudo em dia.'] }], URL_APP), 'Outlook gestão');
+  if (av.pcp) await outlook(lista(cfg.emails_pcp), `${teste ? 'TESTE · ' : ''}${av.pcp.titulo}`, emailHtml(av.pcp.titulo, [av.pcp], URL_APP), 'Outlook PCP');
+  const temEmail = lista(cfg.emails).length || lista(cfg.emails_pcp).length;
+  if (cfg.outlook_webhook && !temEmail) falhas.push('Outlook sem e-mails cadastrados');
+  if (!cfg.teams_webhook && !((chave || cfg.outlook_webhook) && temEmail)) falhas.push('nenhum destino configurado');
 
   const resultado = [feitos.length ? 'enviado: ' + feitos.join(', ') : '', falhas.length ? 'falhou: ' + falhas.join(', ') : ''].filter(Boolean).join(' · ');
   await admin.from('config_avisos').update({ ultimo_envio: new Date().toISOString(), ultimo_resultado: (teste ? 'teste · ' : '') + resultado }).eq('id', 1);
