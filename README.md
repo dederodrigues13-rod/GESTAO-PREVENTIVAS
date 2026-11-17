@@ -70,3 +70,9 @@ Toda alteração salva no GitHub é publicada pela Vercel em cerca de 1 minuto.
 - **Acabamento:** esqueleto de carregamento, carimbo "Autêntico" quando o gerente conclui, tema claro opcional (sol/lua no cabeçalho).
 - **3D:** máquina escolhida com onda no chão, etiqueta flutuando e câmera que vai até ela; botão **Tour** passeia pelas células.
 - **Celular:** "Um item por vez" (botões OK/NOK grandes, vibra ao tocar) ou "Lista completa"; **Assinar em tela cheia** com o celular deitado.
+
+## Corretivas do portal SM (17/11/2026)
+- Tela **Corretivas** (menu): chamados do SM cruzados com as preventivas: tempo em chamado, tempo médio até fechar, parada de linha, abertos agora; por máquina, **antes × depois** de cada preventiva (90 dias); sistemas que mais param; "quebrou logo depois da preventiva" (até 15 dias); lista com troca de máquina à mão.
+- **Como entram:** botão **Importar do SM** → arrastar **Enviar ao sistema** para a barra de favoritos e clicar nele na tela de Chamados do SM (funciona de dentro da rede, sem TI), ou colar as linhas copiadas. Reimportar não duplica e não desfaz a máquina escolhida à mão.
+- **Regra da máquina:** solicitante VTIA/VTIP = a máquina; solicitante pessoa (fornos) = forno pelo assunto (T01–T03 → VTFT; "forno da máquina 08" → mapa `CELULA_VTFE` em `dados.js`, a preencher).
+- Banco: `05_corretivas.sql`. Regras puras em `corretivas-regras.js`.

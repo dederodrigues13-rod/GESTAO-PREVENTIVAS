@@ -1,7 +1,7 @@
 // Service worker: permite instalar como app e abre mais rápido.
 // Sempre tenta a internet primeiro (dados sempre atualizados); usa a cópia
 // guardada só se estiver sem conexão. Dados do Supabase nunca são guardados.
-const CACHE = 'gestao-preventivas-v5';
+const CACHE = 'gestao-preventivas-v6';
 const BASE = ['/', '/app.css', '/app.js', '/config.js', '/logo-vetore.png', '/banner-vetore.jpg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

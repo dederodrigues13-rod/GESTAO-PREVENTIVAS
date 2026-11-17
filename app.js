@@ -19,6 +19,7 @@ import { telaFormulario, telaEnviado, telaRelatorio, confirmarExclusao } from '.
 import { telaAcoes, telaHistorico, telaIndicadores, telaAvisos, telaVerificacao, stAcao } from './telas.js';
 import { acoes } from './store.js';
 import { telaTV, sairTV } from './tv.js';
+import { telaCorretivas, ouvirFavorito } from './corretivas.js';
 
 const URL_APP = location.origin + '/';
 const app = document.getElementById('app');
@@ -34,10 +35,10 @@ const pill = (st) => `<span class="pill" style="--c:${ST[st].cor}">${ST[st].nome
 // ---------- casca ----------
 const ABAS = [
   ['painel', 'Painel', 'painel'], ['calendario', 'Calendário', 'cal'], ['layout', 'Layout 3D', 'cubo'],
-  ['registros', 'Registros', 'lista'], ['acoes', 'Plano de ação', 'alvo'], ['indicadores', 'Indicadores', 'grafico', true],
+  ['registros', 'Registros', 'lista'], ['acoes', 'Plano de ação', 'alvo'], ['corretivas', 'Corretivas', 'chave'], ['indicadores', 'Indicadores', 'grafico', true],
   ['feriados', 'Feriados', 'cal', true], ['avisos', 'Avisos', 'sino', true], ['etiquetas', 'Etiquetas QR', 'qr', true],
 ];
-const TITULOS = { painel: 'Painel', calendario: 'Calendário', layout: 'Layout 3D', registros: 'Registros', acoes: 'Plano de ação', indicadores: 'Indicadores', feriados: 'Feriados', avisos: 'Avisos', etiquetas: 'Etiquetas QR' };
+const TITULOS = { painel: 'Painel', calendario: 'Calendário', layout: 'Layout 3D', registros: 'Registros', acoes: 'Plano de ação', corretivas: 'Corretivas (SM)', indicadores: 'Indicadores', feriados: 'Feriados', avisos: 'Avisos', etiquetas: 'Etiquetas QR' };
 const menuFixo = () => pref('prev-menu-fixo') === '1';
 // tema: escuro (padrão, chão de fábrica) ou claro (escritório), lembrado no aparelho
 const temaClaro = () => pref('prev-tema') === 'claro';
@@ -480,6 +481,7 @@ function rotear() {
   window.scrollTo(0, 0);
   if (rota === 'tv') { telaTV(app); return; }
   sairTV();
+  if (rota === 'corretivas') { telaCorretivas(casca(rota), { gestao: gestao() }); return; }
   if (rota.startsWith('m-')) {
     const m = porSlug[rota.slice(2)];
     const el = casca(rota);
@@ -539,8 +541,10 @@ async function iniciar() {
   entrar(data.session);
 }
 window.addEventListener('hashchange', () => { if (rodando) rotear(); });
+// chamados mandados pelo botão de favorito do SM: guarda e abre a tela de Corretivas
+ouvirFavorito(() => { if (location.hash !== '#corretivas') location.hash = 'corretivas'; else if (rodando) rotear(); });
 // telas com campos para digitar não são redesenhadas sozinhas (não perde o que está sendo digitado)
-aoMudar(() => { if (rodando && !/^#(m-|r-|layout|avisos|feriados)/.test(location.hash)) { const y = scrollY; rotear(); requestAnimationFrame(() => scrollTo(0, y)); } });
+aoMudar(() => { if (rodando && !/^#(m-|r-|layout|avisos|feriados|corretivas)/.test(location.hash)) { const y = scrollY; rotear(); requestAnimationFrame(() => scrollTo(0, y)); } });
 aoErro((m) => toast('Não foi gravado: ' + m, 'erro'));
 // atualiza sozinho: ao voltar para a aba e a cada 2 minutos (assinaturas feitas em outro celular)
 const atualizar = () => { if (rodando && document.visibilityState === 'visible') carregar().catch(() => {}); };

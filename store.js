@@ -194,3 +194,38 @@ export async function testarAvisos() { const { data, error } = await sb.function
 export async function verificar(id) { const { data, error } = await sb.rpc('verificar_registro', { p_id: id }); if (error) throw error; return data; }
 
 export const novoId = () => 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+// ---------- corretivas (chamados do portal SM) ----------
+// carregadas só quando uma tela precisa (podem ser milhares); o banco entrega no máximo 1000 por vez
+let cacheCorr = null;
+const colCorr = 'os, prioridade, assunto, status, solicitante, atendente, maquina_auto, maquina_origem, maquina_manual, celula, sistema, abertura, ultimo_atend, ultima_mod';
+export async function corretivas(forcar = false) {
+  if (cacheCorr && !forcar) return cacheCorr;
+  const todas = [];
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await sb.from('corretivas').select(colCorr).order('os').range(de, de + 999);
+    if (error) { if (/corretivas/.test(error.message || '') && !todas.length) return (cacheCorr = []); throw error; }
+    todas.push(...data); if (data.length < 1000) break;
+  }
+  cacheCorr = todas.map((c) => ({ ...c, maquina: c.maquina_manual || c.maquina_auto }));
+  return cacheCorr;
+}
+// grava as OMs lidas do SM: novas entram, as que já existem são atualizadas (status, datas…);
+// a máquina escolhida à mão fica (vai em outra coluna)
+export async function importarCorretivas(lista) {
+  const antes = new Set((await corretivas()).map((c) => c.os));
+  const linhas = lista.map((c) => ({ os: c.os, prioridade: c.prioridade, assunto: c.assunto, status: c.status, solicitante: c.solicitante, atendente: c.atendente,
+    maquina_auto: c.maquina, maquina_origem: c.maquina_origem, celula: c.celula, sistema: c.sistema, abertura: c.abertura, ultimo_atend: c.ultimo_atend, ultima_mod: c.ultima_mod }));
+  for (let i = 0; i < linhas.length; i += 500) {
+    const { error } = await sb.from('corretivas').upsert(linhas.slice(i, i + 500), { onConflict: 'os' });
+    if (error) throw error;
+  }
+  await corretivas(true);
+  const novas = lista.filter((c) => !antes.has(c.os)).length;
+  return { novas, atualizadas: lista.length - novas };
+}
+export async function definirMaquinaCorretiva(os, maquina) {
+  const { error } = await sb.from('corretivas').update({ maquina_manual: maquina || null }).eq('os', os);
+  if (error) throw error;
+  const c = cacheCorr?.find((x) => x.os === os); if (c) { c.maquina_manual = maquina || null; c.maquina = c.maquina_manual || c.maquina_auto; }
+}

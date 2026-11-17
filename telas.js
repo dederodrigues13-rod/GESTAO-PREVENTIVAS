@@ -8,6 +8,8 @@ import { registros, acoes, atualizarAcao, lerAvisos, salvarAvisos, testarAvisos,
 import { SUPABASE_URL } from './config.js';
 import { esc, ic, dataBR, diaMes, semana, dataHoraBR, duracao, toast, abrirModal, diasEntre, contarNumeros, esqueleto } from './ui.js';
 import { folgas } from './situacao.js';
+import { corretivasDaMaquina } from './corretivas.js';
+import { horasParada, fechado } from './corretivas-regras.js';
 import { botaoFoto, tirarFoto, miniaturas, carregarMiniaturas } from './fotos.js';
 
 const nomeMes = (ciclo) => `${MESES[+ciclo.slice(5) - 1]}/${ciclo.slice(0, 4)}`;
@@ -155,9 +157,19 @@ export function telaHistorico(el, slug) {
           ${recorr.some(([, c]) => c > 1) ? `<p class="aviso">${ic('alert')}<span>Item com NOK em mais de uma preventiva: vale investigar a causa.</span></p>` : ''}</section>
         <section class="bloco"><h2>Ações desta máquina</h2>
           ${minhasAcoes.length ? `<ul class="mini-acoes">${minhasAcoes.slice(0, 8).map((a) => `<li style="--c:${ST_ACAO[stAcao(a)].cor}"><b>${esc(a.acao || a.item || '')}</b><small>${ST_ACAO[stAcao(a)].nome} · prazo ${a.prazo ? dataBR(a.prazo) : '—'} · ${esc(a.responsavel || 'sem responsável')}</small></li>`).join('')}</ul><a class="link" href="#acoes">Ver todas as ações</a>` : '<p class="vazio-p">Nenhuma ação.</p>'}</section>
+        <section class="bloco" data-corr-hist><h2>Corretivas (portal SM)</h2><p class="sub">Carregando…</p></section>
       </div>
     </div>
   </div>`;
+  // chamados do SM desta máquina (carregam à parte)
+  corretivasDaMaquina(m.codigo).then((l) => {
+    const box = el.querySelector('[data-corr-hist]'); if (!box) return;
+    const d90 = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10), rec = l.filter((c) => (c.abertura || '') >= d90);
+    const hh = rec.reduce((s, c) => s + horasParada(c), 0);
+    box.innerHTML = `<h2>Corretivas (portal SM)</h2>
+      <p class="sub">${rec.length} chamados nos últimos 90 dias · ${hh.toFixed(1).replace('.', ',')} h com chamado aberto · <a href="#corretivas">ver todas</a></p>
+      ${l.length ? `<ul class="mini-acoes">${l.slice(0, 8).map((c) => `<li style="--c:${/parada/i.test(c.prioridade || '') ? 'var(--danger)' : '#f0a93b'}"><b>OM ${c.os} · ${esc(c.assunto)}</b><small>${dataHoraBR(c.abertura)} · ${esc(c.prioridade || '')} · ${fechado(c) ? `fechada em ${horasParada(c).toFixed(1).replace('.', ',')} h` : esc(c.status || 'aberta')}</small></li>`).join('')}</ul>` : '<p class="vazio-p">Nenhum chamado importado para esta máquina.</p>'}`;
+  }).catch(() => { const box = el.querySelector('[data-corr-hist]'); if (box) box.remove(); });
 }
 
 // ---------- indicadores ----------
