@@ -61,3 +61,15 @@ export function emailHtml(titulo, secoes, url) {
   ${secoes.map((s) => `<h3 style="margin:18px 0 6px;color:${s.cor === 'Attention' ? '#c0392b' : s.cor === 'Warning' ? '#b7791f' : '#111'}">${esc(s.titulo)}</h3><ul style="margin:0;padding-left:20px">${s.linhas.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`).join('')}
   <p style="margin-top:22px"><a href="${url}" style="background:#ffc20e;color:#111;padding:10px 16px;text-decoration:none;font-weight:bold;border-radius:4px">Abrir o sistema</a></p></div>`;
 }
+
+// Feed RSS lido pelo fluxo do Teams/Outlook (conector RSS "Quando um item do feed é publicado").
+// Cada item = um e-mail: title = assunto, description = corpo HTML, category = destinatários (separados por ;)
+const xml = (v) => String(v ?? '').replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
+const cdata = (v) => '<![CDATA[' + String(v ?? '').replaceAll(']]>', ']]]]><![CDATA[>') + ']]>';
+export function montarFeed(itens, url) {
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel>'
+    + `<title>Gestão de Preventivas · avisos</title><link>${xml(url)}</link><description>Avisos automáticos da Gestão de Preventivas (Vetore)</description>`
+    + itens.map((i) => `<item><guid isPermaLink="false">${xml(i.id)}</guid><title>${xml(i.titulo)}</title><link>${xml(url)}</link>`
+      + `<category>${xml(i.para)}</category><pubDate>${new Date(i.em).toUTCString()}</pubDate><description>${cdata(i.html)}</description></item>`).join('')
+    + '</channel></rss>';
+}

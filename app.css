@@ -631,3 +631,4 @@ textarea.campo { resize: vertical; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 .ajuda code { background: rgba(255,194,14,.12); color: #ffd75a; padding: 1px 5px; border-radius: 3px; font-size: .92em; user-select: all; }
+.linha-copiar { display: flex; gap: 8px; } .linha-copiar .campo { flex: 1; min-width: 0; font-size: .82em; }

@@ -169,3 +169,5 @@ create policy "gestao altera avisos" on public.config_avisos for update to authe
 revoke execute on function public.criar_acoes(), public.acao_atualizada(), public.validar_registro() from public, anon, authenticated;
 
 alter table public.config_avisos add column if not exists outlook_webhook text;
+alter table public.config_avisos add column if not exists teste_em timestamptz;       -- botão "Enviar teste" (o feed mostra o teste por 6 h)
+alter table public.config_avisos add column if not exists feed_lido_em timestamptz;   -- última vez que o fluxo do Outlook leu o feed
