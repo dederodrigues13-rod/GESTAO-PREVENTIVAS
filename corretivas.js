@@ -7,7 +7,7 @@
 import { MAQUINAS, porCodigo, SETORES, CELULA_VTFE } from './dados.js';
 import { itens, hoje } from './situacao.js';
 import { corretivas, importarCorretivas, definirMaquinaCorretiva } from './store.js';
-import { lerChamados, horasParada, fechado, FORNOS_GERAL } from './corretivas-regras.js';
+import { lerChamados, horasParada, fechado, FORNOS_GERAL, SEM_MAQUINA } from './corretivas-regras.js';
 import { esc, ic, dataBR, dataHoraBR, toast, abrirModal, contarNumeros, esqueleto } from './ui.js';
 
 const APP = location.origin;
@@ -16,7 +16,7 @@ const PENDENTE = 'prev-sm-pendente';
 const JANELA = 90;                // dias antes/depois da preventiva para comparar
 const LOGO_DEPOIS = 15;           // quebra até 15 dias depois da preventiva = alerta
 const PERIODOS = [['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Tudo']];
-const nomeMaq = (c) => (c === FORNOS_GERAL ? 'Fornos (geral)' : c);
+const nomeMaq = (c) => (c === FORNOS_GERAL ? 'Fornos (geral)' : c === SEM_MAQUINA ? 'Sem máquina' : c);
 const hrs = (h) => (h >= 48 ? `${(h / 24).toFixed(1).replace('.', ',')} d` : `${h.toFixed(1).replace('.', ',')} h`);
 const diaDe = (ts) => (ts ? ts.slice(0, 10) : '');
 const somaDiasIso = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -90,7 +90,7 @@ export async function telaCorretivas(el, { gestao } = {}) {
     const pl = lista.filter((c) => /parada/i.test(c.prioridade || '')).length;
     const prev = preventivasFeitas();
     // por máquina
-    const cods = [...new Set([...MAQUINAS.map((m) => m.codigo), FORNOS_GERAL])].filter((c) => st.setor === 'todos' || setorDe(c) === st.setor);
+    const cods = [...new Set([...MAQUINAS.map((m) => m.codigo), FORNOS_GERAL, SEM_MAQUINA])].filter((c) => st.setor === 'todos' || setorDe(c) === st.setor);
     const linhas = cods.map((c) => {
       const os = lista.filter((o) => o.maquina === c), hh = os.reduce((s, o) => s + horasParada(o, agora), 0);
       const ult = (prev[c] || []).at(-1), ad = antesDepois([c], todas, prev);
@@ -105,7 +105,7 @@ export async function telaCorretivas(el, { gestao } = {}) {
     // sistemas
     const sis = {}; lista.forEach((o) => { const s = (sis[o.sistema] ??= { n: 0, h: 0 }); s.n++; s.h += horasParada(o, agora); });
     const sisL = Object.entries(sis).sort((a, b) => b[1].n - a[1].n || b[1].h - a[1].h), maxS = Math.max(1, ...sisL.map(([, v]) => v.n));
-    const opcoesMaq = [FORNOS_GERAL, ...MAQUINAS.map((m) => m.codigo)];
+    const opcoesMaq = [SEM_MAQUINA, FORNOS_GERAL, ...MAQUINAS.map((m) => m.codigo)];
     const total = antesDepois(Object.keys(prev), todas, prev);
 
     el.innerHTML = `<div class="pag">
@@ -129,7 +129,7 @@ export async function telaCorretivas(el, { gestao } = {}) {
         <div class="corr-tab-box"><table class="corr-tab"><thead><tr><th>Máquina</th><th>Chamados</th><th>Tempo em chamado</th><th>Parada de linha</th><th>Última preventiva</th><th>Antes → depois</th></tr></thead><tbody>
         ${linhas.map((x) => {
           const v = x.ad.n ? (x.ad.depois < x.ad.antes ? 'melhor' : x.ad.depois > x.ad.antes ? 'pior' : 'igual') : '';
-          return `<tr><th scope="row">${porCodigo[x.c] ? `<a href="#h-${porCodigo[x.c].slug}">${esc(x.c)}</a>` : esc(nomeMaq(x.c))}<small>${esc(porCodigo[x.c]?.modelo || 'forno sem código no SM')}</small></th>
+          return `<tr><th scope="row">${porCodigo[x.c] ? `<a href="#h-${porCodigo[x.c].slug}">${esc(x.c)}</a>` : esc(nomeMaq(x.c))}<small>${esc(porCodigo[x.c]?.modelo || (x.c === SEM_MAQUINA ? 'aberto por pessoa, sem máquina no assunto' : 'forno sem código no SM'))}</small></th>
             <td>${x.os}</td><td><div class="corr-barra"><i style="width:${x.hh / maxH * 100}%"></i><span>${hrs(x.hh)}</span></div></td><td>${x.pl || '–'}</td>
             <td>${x.ult ? dataBR(x.ult) : '<span class="muted">ainda não</span>'}</td>
             <td>${x.ad.n ? `<span class="corr-ad corr-${v}">${x.ad.antes} → ${x.ad.depois} ${v === 'melhor' ? '▼' : v === 'pior' ? '▲' : '='}</span>` : '<span class="muted">aguardando dados</span>'}</td></tr>`;

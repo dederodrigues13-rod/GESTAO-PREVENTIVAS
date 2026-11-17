@@ -14,6 +14,10 @@
 // =====================================================================
 
 export const FORNOS_GERAL = 'FORNOS';
+export const SEM_MAQUINA = 'SEM';
+// quem abre chamado pelos fornos (solicitante pessoa → Fornos); os outros nomes viram "sem máquina"
+// até o assunto dizer qual é (ex.: "estampo máquina 13") ou alguém escolher à mão
+export const SOLICITANTES_FORNOS = [/jaisson/];
 export const ehMaquina = (s) => /^VT[A-Z]{2} \d{2}$/.test(s);
 const normal = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -29,6 +33,15 @@ export function maquinaDe(solicitante, assunto, celulaVTFE = {}) {
   const sol = String(solicitante || '').trim().toUpperCase().replace(/^(VT[A-Z]{2})\s*-?\s*(\d{1,2})$/, (_, a, n) => `${a} ${n.padStart(2, '0')}`);
   if (ehMaquina(sol)) return { maquina: sol, origem: 'solicitante' };
   const a = normal(assunto);
+  const daFornos = SOLICITANTES_FORNOS.some((re) => re.test(normal(solicitante)));
+  if (!daFornos) {
+    // outra pessoa (engenharia, produção…): tenta achar a máquina no assunto
+    const vt = /\b(vt[a-z]{2})\s*-?\s*(\d{1,2})\b/.exec(a);
+    if (vt) return { maquina: `${vt[1].toUpperCase()} ${vt[2].padStart(2, '0')}`, origem: 'assunto' };
+    const mq = /\b(?:maquina|maq\.?)\s*0?(\d{1,2})\b/.exec(a);
+    if (mq && +mq[1] >= 2 && +mq[1] <= 13 && !/forno/.test(a)) return { maquina: `VTIA ${mq[1].padStart(2, '0')}`, origem: 'assunto' };
+    if (!/forno|fusao|queimador/.test(a)) return { maquina: SEM_MAQUINA, origem: 'pessoa' };
+  }
   const torre = /\bforno\s*(?:torre\s*)?t\s*0?(\d)\b|\bt\s*0?([1-3])\b/.exec(a);
   if (torre) return { maquina: `VTFT 0${torre[1] || torre[2]}`, origem: 'assunto' };
   const cel = /forno\s+(?:de\s+espera\s+)?d[ao]\s+(?:maquina|maq\.?|celula)\s*0?(\d{1,2})/.exec(a);
