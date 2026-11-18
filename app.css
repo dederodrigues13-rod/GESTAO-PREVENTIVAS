@@ -883,3 +883,21 @@ body.claro .corr-pri-pl { color: #a8321a; } body.claro .corr-pri-cr { color: #8a
 .corr-h3 { margin: 18px 0 4px; font-size: 15px; }
 .corr-busca { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-top: 10px; }
 .corr-busca input { flex: 1 1 260px; max-width: 420px; }
+
+/* quem mais atendeu (ranking) */
+.atend-lista { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; }
+.atend-lista li { display: grid; grid-template-columns: 30px 38px minmax(150px, 1.2fr) minmax(80px, 2fr) 64px 70px; align-items: center; gap: 12px; padding: 8px 6px; border-radius: 6px; }
+.atend-lista li:hover { background: var(--panel-2); }
+.atend-pos { font-family: var(--font-cond); font-size: 16px; color: var(--muted); text-align: right; }
+.atend-lista li:first-child .atend-pos { color: var(--yellow); }
+.atend-av { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: #2b3138; border: 1px solid var(--border); font-weight: 700; font-size: 13.5px; letter-spacing: .02em; color: #c9d1da; }
+.atend-lista li:first-child .atend-av { background: rgba(255,194,14,.14); border-color: var(--yellow); color: var(--yellow); }
+.atend-nome { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atend-barra { height: 10px; border-radius: 5px; background: var(--panel-2); overflow: hidden; }
+.atend-barra i { display: block; height: 100%; border-radius: 5px; background: #5aa2ff; }
+.atend-lista li:first-child .atend-barra i { background: var(--yellow); }
+.atend-n, .atend-t { font-family: var(--font-cond); font-size: 20px; line-height: 1; text-align: right; font-variant-numeric: tabular-nums; }
+.atend-t { font-size: 17px; color: var(--muted); }
+.atend-n small, .atend-t small { display: block; font-family: var(--font); font-size: 11.5px; font-weight: 500; color: var(--muted); margin-top: 3px; }
+body.claro .atend-av { background: #eceef1; color: #3a424c; }
+@media (max-width: 760px) { .atend-lista li { grid-template-columns: 26px 34px minmax(0, 1fr) 54px; } .atend-barra, .atend-t { display: none; } .atend-av { width: 34px; height: 34px; } }

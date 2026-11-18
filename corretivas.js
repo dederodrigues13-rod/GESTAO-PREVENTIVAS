@@ -242,8 +242,9 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
     const sisL = Object.entries(sis).sort((a, b) => b[1].n - a[1].n || b[1].h - a[1].h), maxS = Math.max(1, ...sisL.map(([, v]) => v.n));
     const rep = {}; lista.forEach((o) => { const k = chaveAssunto(o.assunto); if (!k) return; const r = (rep[k] ??= { n: 0, ex: o.assunto, ult: o.abertura }); r.n++; });
     const repL = Object.values(rep).filter((r) => r.n > 1).sort((a, b) => b.n - a.n).slice(0, 10);
-    const atend = {}; lista.forEach((o) => { if (o.atendente) atend[o.atendente] = (atend[o.atendente] || 0) + 1; });
-    const atendL = Object.entries(atend).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const atend = {}; lista.forEach((o) => { if (!o.atendente) return; const a = (atend[o.atendente] ??= { n: 0, hf: 0, nf: 0 }); a.n++; if (fechado(o)) { a.nf++; a.hf += horasParada(o); } });
+    const atendL = Object.entries(atend).sort((a, b) => b[1].n - a[1].n).slice(0, 8), maxA = Math.max(1, ...atendL.map(([, v]) => v.n)), totA = lista.filter((o) => o.atendente).length || 1;
+    const iniciais = (n) => n.split(/\s+/).filter((p) => p.length > 2 || /^[A-ZÁ-Ú]/.test(p)).filter((p) => !/^(dos|das|de|da|do)$/i.test(p)).map((p) => p[0]).slice(0, 1).concat(n.split(/\s+/).filter((p) => !/^(dos|das|de|da|do|júnior|junior|filho|neto)$/i.test(p)).slice(-1).map((p) => p[0])).join('').toUpperCase();
     // lista filtrada
     const q = chaveAssunto(st.busca);
     const filtrada = lista.filter((o) => (st.pri === 'todas' || (st.pri === 'pl' ? ehPL(o) : st.pri === 'cr' ? /cr[ií]tico/i.test(o.prioridade || '') : !ehPL(o) && !/cr[ií]tico/i.test(o.prioridade || ''))) && (!q || chaveAssunto(`${o.os} ${o.assunto} ${o.atendente}`).includes(q)));
@@ -275,9 +276,15 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
         </section>
         <section class="bloco"><div class="bloco-topo"><h2>Problemas que se repetem</h2><p class="sub">Mesmo assunto aberto mais de uma vez</p></div>
           ${repL.length ? `<ul class="corr-rep">${repL.map((r) => `<li><b>${r.n}×</b><span>${esc(r.ex)}<small>último em ${dataBR(diaDe(r.ult))}</small></span></li>`).join('')}</ul>` : '<p class="vazio-p">Nenhum assunto repetido.</p>'}
-          ${atendL.length ? `<h3 class="corr-h3">Quem mais atendeu</h3><p class="sub">${atendL.map(([n, c]) => `${esc(n)} (${c})`).join(' · ')}</p>` : ''}
         </section>
       </div>
+      ${atendL.length ? `<section class="bloco"><div class="bloco-topo"><h2>Quem mais atendeu</h2><p class="sub">Chamados atendidos nesta máquina · tempo médio até fechar</p></div>
+        <ol class="atend-lista">${atendL.map(([n, v], i) => `<li title="${esc(n)}: ${v.n} chamados">
+          <span class="atend-pos">${i + 1}º</span><span class="atend-av" aria-hidden="true">${esc(iniciais(n))}</span>
+          <span class="atend-nome">${esc(n)}</span>
+          <span class="atend-barra"><i style="width:${v.n / maxA * 100}%"></i></span>
+          <b class="atend-n">${v.n}<small>${Math.round(v.n / totA * 100)}%</small></b>
+          <span class="atend-t">${v.nf ? hrs(v.hf / v.nf) : '–'}<small>médio</small></span></li>`).join('')}</ol></section>` : ''}
 
       <section class="bloco"><div class="bloco-topo"><h2>Todos os chamados</h2><p class="sub">${filtrada.length} de ${lista.length}</p></div>
         <div class="corr-busca"><input class="campo" type="search" data-busca placeholder="Buscar por assunto, número ou atendente" value="${esc(st.busca)}" aria-label="Buscar chamados">
