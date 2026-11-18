@@ -92,12 +92,16 @@ const carregar = (src, global) => window[global] ? Promise.resolve(window[global
   const s = document.createElement('script'); s.src = src; s.onload = () => ok(window[global]); s.onerror = () => erro(new Error('não carregou ' + src)); document.head.append(s);
 });
 export async function gerarPDF(r, m) {
+  const fotosUrl = await carregarFotosRel(r);
+  return pdfDeHtml(folhasA4(r, m, fotosUrl), { title: `${r.codigo} · Relatório de manutenção preventiva`, subject: 'FR.06.08.002-A' });
+}
+// transforma folhas .a4 (HTML) em PDF A4
+export async function pdfDeHtml(html, props = {}) {
   const [h2c, jspdf] = await Promise.all([
     carregar('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'html2canvas'),
     carregar('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'jspdf'),
   ]);
-  const fotosUrl = await carregarFotosRel(r);
-  const box = document.createElement('div'); box.className = 'a4-render'; box.innerHTML = folhasA4(r, m, fotosUrl); document.body.append(box);
+  const box = document.createElement('div'); box.className = 'a4-render'; box.innerHTML = html; document.body.append(box);
   try {
     await Promise.all([...box.querySelectorAll('img')].map((i) => i.complete ? 0 : new Promise((ok) => { i.onload = i.onerror = ok; })));
     try { await document.fonts?.ready; } catch { /* segue */ }
@@ -108,7 +112,7 @@ export async function gerarPDF(r, m) {
       if (i) doc.addPage();
       doc.addImage(c.toDataURL('image/jpeg', .92), 'JPEG', 0, 0, 210, 297);
     }
-    doc.setProperties({ title: `${r.codigo} · Relatório de manutenção preventiva`, subject: 'FR.06.08.002-A', creator: 'Gestão de Preventivas · Vetore' });
+    doc.setProperties({ creator: 'Gestão de Preventivas · Vetore', ...props });
     return doc.output('blob');
   } finally { box.remove(); }
 }

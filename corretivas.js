@@ -8,7 +8,9 @@ import { MAQUINAS, porCodigo, SETORES, CELULA_VTFE } from './dados.js';
 import { itens, hoje } from './situacao.js';
 import { corretivas, importarCorretivas, definirMaquinaCorretiva } from './store.js';
 import { lerChamados, conferirLeitura, horasParada, fechado, FORNOS_GERAL, SEM_MAQUINA } from './corretivas-regras.js';
+import { pdfDeHtml, salvarArquivo } from './relatorio.js';
 import { esc, ic, dataBR, dataHoraBR, toast, abrirModal, contarNumeros, esqueleto } from './ui.js';
+import { janelas, noIntervalo, serie12, mttr, sparkline, cartaoKpi, mapaCalor, chamadosDoHorario, nomeHorario, pareto, matrizMaquinasMeses, relatorioMensalA4, ehPL } from './corretivas-vis.js';
 
 const APP = location.origin;
 const ORIGEM_SM = /^https:\/\/([a-z0-9-]+\.)*suporte\.com$/i;   // de onde o botão de favorito pode mandar
@@ -87,80 +89,91 @@ export async function telaCorretivas(el, { gestao } = {}) {
   let todas;
   try { await importarPendente(); todas = await corretivas(); }
   catch (e) { el.innerHTML = `<div class="pag"><p class="aviso aviso-red">${ic('alert')}<span>Não foi possível carregar as corretivas: ${esc(e?.message || e)}</span></p></div>`; return; }
-  const st = { per: sessionStorage.getItem('prev-corr-per') || '90', setor: 'todos', ord: 'os', mes: null };
+  const st = { per: sessionStorage.getItem('prev-corr-per') || '90', setor: 'todos', ord: 'os', mes: null, calor: null };
   const desenhar = () => {
     const h = hoje(), agora = Date.now();
-    const ini = st.per === '30' ? somaDiasIso(h, -30) : st.per === '90' ? somaDiasIso(h, -90) : st.per === 'mes' ? h.slice(0, 8) + '01' : st.per === 'ano' ? h.slice(0, 5) + '01-01' : '0000';
+    const jan = janelas(st.per, h);
     const setorDe = (c) => (c === FORNOS_GERAL ? 'fornos' : porCodigo[c]?.setor || 'outros');
-    const lista = todas.filter((c) => diaDe(c.abertura) >= ini && (st.setor === 'todos' || setorDe(c.maquina) === st.setor))
-      .sort((a, b) => String(b.abertura).localeCompare(String(a.abertura)));
-    const horas = lista.reduce((s, c) => s + horasParada(c, agora), 0);
-    const fech = lista.filter(fechado), mttr = fech.length ? fech.reduce((s, c) => s + horasParada(c), 0) / fech.length : 0;
-    const abertas = todas.filter((c) => !fechado(c));
-    const pl = lista.filter((c) => /parada/i.test(c.prioridade || '')).length;
+    const base = todas.filter((c) => st.setor === 'todos' || setorDe(c.maquina) === st.setor);
+    const lista = base.filter((c) => noIntervalo(c, jan.atual)).sort((a, b) => String(b.abertura).localeCompare(String(a.abertura)));
+    const ant = jan.ant ? base.filter((c) => noIntervalo(c, jan.ant)) : null;
+    const horasDe = (l) => l.reduce((s, c) => s + horasParada(c, agora), 0);
+    const abertas = base.filter((c) => !fechado(c));
     const prev = preventivasFeitas();
     // por máquina
     const cods = [...new Set([...MAQUINAS.map((m) => m.codigo), FORNOS_GERAL, SEM_MAQUINA])].filter((c) => st.setor === 'todos' || setorDe(c) === st.setor);
     const linhas = cods.map((c) => {
       const os = lista.filter((o) => o.maquina === c), hh = os.reduce((s, o) => s + horasParada(o, agora), 0);
       const ult = (prev[c] || []).at(-1), ad = antesDepois([c], todas, prev);
-      return { c, os: os.length, hh, ult, ad, pl: os.filter((o) => /parada/i.test(o.prioridade || '')).length };
+      const s12 = serie12(base.filter((o) => o.maquina === c), h, (l) => l.length);
+      const u3 = s12.slice(-4, -1).reduce((p, q) => p + q, 0), a3 = s12.slice(-7, -4).reduce((p, q) => p + q, 0);   // meses fechados
+      return { c, os: os.length, hh, ult, ad, pl: os.filter(ehPL).length, s12, var3: a3 ? Math.round((u3 - a3) / a3 * 100) : null };
     }).filter((x) => x.os || x.ult).sort((a, b) => (st.ord === 'hh' ? b.hh - a.hh : st.ord === 'pl' ? b.pl - a.pl : 0) || b.os - a.os || b.hh - a.hh);
     const maxH = Math.max(1, ...linhas.map((x) => x.hh));
+    const comPrev = linhas.some((x) => x.ult);
     // quebras logo depois da preventiva
     const alertas = [];
     Object.entries(prev).forEach(([c, datas]) => datas.forEach((d) => todas.forEach((o) => {
       const a = diaDe(o.abertura); if (o.maquina === c && a > d && a <= somaDiasIso(d, LOGO_DEPOIS)) alertas.push({ o, d, dias: Math.round((new Date(a) - new Date(d)) / 864e5) });
     })));
-    // sistemas
-    const sis = {}; lista.forEach((o) => { const s = (sis[o.sistema] ??= { n: 0, h: 0 }); s.n++; s.h += horasParada(o, agora); });
-    const sisL = Object.entries(sis).sort((a, b) => b[1].n - a[1].n || b[1].h - a[1].h), maxS = Math.max(1, ...sisL.map(([, v]) => v.n));
     const opcoesMaq = [SEM_MAQUINA, FORNOS_GERAL, ...MAQUINAS.map((m) => m.codigo)];
     const total = antesDepois(Object.keys(prev), todas, prev);
+    const rotAnt = jan.rot ? `comparado com ${jan.rot}` : '';
+    const kpis = [
+      { rot: 'Chamados no período', val: lista.length, atual: lista.length, anterior: ant?.length, serie: serie12(base, h, (l) => l.length), cor: '#5aa2ff', sub: ant ? `${ant.length} no período anterior` : 'todo o histórico' },
+      { rot: 'Parada de linha', val: lista.filter(ehPL).length, atual: lista.filter(ehPL).length, anterior: ant?.filter(ehPL).length, serie: serie12(base, h, (l) => l.filter(ehPL).length), cor: '#ff5a36', corVal: 'var(--danger)', sub: lista.length ? `${Math.round(lista.filter(ehPL).length / lista.length * 100)}% dos chamados` : '' },
+      { rot: 'Tempo médio até fechar', val: hrs(mttr(lista)), atual: mttr(lista), anterior: ant ? mttr(ant) : null, serie: serie12(base, h, mttr), cor: '#4cc38a', sub: ant && mttr(ant) ? `antes: ${hrs(mttr(ant))}` : 'da abertura ao fechamento' },
+      { rot: 'Tempo com chamado aberto', val: hrs(horasDe(lista)), atual: horasDe(lista), anterior: ant ? horasDe(ant) : null, serie: serie12(base, h, (l) => l.reduce((s, c) => s + horasParada(c, agora), 0)), cor: '#f0a93b', sub: 'soma de todos os chamados' },
+      { rot: 'Abertos agora no SM', val: abertas.length, serie: [], cor: '#f0a93b', corVal: abertas.length ? '#f0a93b' : '', sub: abertas.length ? `mais antigo de ${dataBR(diaDe(abertas.map((c) => c.abertura).filter(Boolean).sort()[0] || ''))}` : 'nenhum em aberto' },
+    ];
 
     el.innerHTML = `<div class="pag">
       <div class="pag-topo pag-topo-acao"><div><h1 class="tit">Corretivas · portal SM</h1><p class="sub">${todas.length} chamados no sistema · máquina pelo solicitante (fornos pelo assunto)</p></div>
-        <button type="button" class="btn btn-pri" data-importar>${ic('baixar')} Importar do SM</button></div>
+        <div class="acoes-topo"><button type="button" class="btn btn-sec" data-relatorio>${ic('grafico')} Relatório do mês (PDF)</button>
+        <button type="button" class="btn btn-pri" data-importar>${ic('baixar')} Importar do SM</button></div></div>
       <div class="corr-filtros">
         <div class="ma-abas">${PERIODOS.map(([k, n]) => `<button type="button" class="chip ${st.per === k ? 'on' : ''}" data-per="${k}">${n}</button>`).join('')}</div>
         <div class="ma-abas">${[['todos', 'Todos'], ...Object.keys(SETORES).map((k) => [k, SETORES[k].curto])].map(([k, n]) => `<button type="button" class="chip ${st.setor === k ? 'on' : ''}" data-setor="${k}">${n}</button>`).join('')}</div>
       </div>
       ${todas.length ? '' : `<section class="bloco vazio-corr"><h2>Nenhum chamado ainda</h2><p class="sub">Clique em <b>Importar do SM</b>: cole a tabela de Chamados ou instale o botão de favorito.</p></section>`}
-      <div class="ind-hero corr-kpis">
-        <div class="kpi"><b data-contar>${lista.length}</b><span>chamados no período</span></div>
-        <div class="kpi" style="--c:var(--danger)"><b>${hrs(horas)}</b><span>com chamado aberto (da abertura ao fechamento)</span></div>
-        <div class="kpi" style="--c:#5aa2ff"><b>${hrs(mttr)}</b><span>tempo médio até fechar</span></div>
-        <div class="kpi" style="--c:var(--yellow)"><b data-contar>${pl}</b><span>parada de linha</span></div>
-        <div class="kpi" style="--c:#f0a93b"><b data-contar>${abertas.length}</b><span>abertos agora no SM</span></div>
-      </div>
+      <div class="kpi2-grade">${kpis.map((k) => cartaoKpi({ ...k, rotAnt })).join('')}</div>
+      ${jan.rot ? `<p class="kpi2-nota">Setas: ${rotAnt} · verde = melhorou · linha = últimos 12 meses</p>` : '<p class="kpi2-nota">Linha = últimos 12 meses</p>'}
 
       ${(() => { const ms = mesesDe(lista, h, agora), md = ms.length ? lista.filter((o) => o.abertura).length / ms.length : 0; return ms.length > 1 ? `<section class="bloco"><div class="bloco-topo"><h2>Chamados mês a mês</h2>
         <div class="sem-leg"><span><i class="lg-atr"></i>Parada de linha</span><span><i class="lg-outros"></i>Outros</span><span><i class="lg-media"></i>Média ${md.toFixed(1).replace('.', ',')}/mês</span><span class="muted">Clique num mês para ver os chamados</span></div></div>
         ${graficoMeses(ms, md, st.mes)}${st.mes ? painelMes(st.mes, lista, ms, agora, true) : ''}</section>` : ''; })()}
 
+      <section class="bloco"><div class="bloco-topo"><h2>Quando os chamados abrem</h2><p class="sub">Dia da semana × hora da abertura, no período escolhido</p></div>
+        ${mapaCalor(lista, st.calor)}${st.calor ? painelChamados({ eyebrow: 'Horário selecionado', titulo: nomeHorario(st.calor)[0].toUpperCase() + nomeHorario(st.calor).slice(1), lista: chamadosDoHorario(lista, ...st.calor), agora, comMaquina: true, fechar: 'data-fechar-calor' }) : ''}</section>
+
       <section class="bloco"><div class="bloco-topo"><h2>Preventiva × corretiva por máquina</h2>
-        <p class="sub">Compara os chamados ${JANELA} dias antes e ${JANELA} dias depois de cada preventiva feita. ${total.n ? `No total: <b>${total.antes}</b> antes → <b>${total.depois}</b> depois.` : 'Aparece quando a primeira preventiva completar ' + JANELA + ' dias.'}</p></div>
-        <div class="corr-tab-box"><table class="corr-tab"><thead><tr><th>Máquina</th>${[['os', 'Chamados'], ['hh', 'Tempo em chamado'], ['pl', 'Parada de linha']].map(([k, n]) => `<th aria-sort="${st.ord === k ? 'descending' : 'none'}"><button type="button" class="th-ord ${st.ord === k ? 'on' : ''}" data-ord="${k}" title="Ordenar por ${n.toLowerCase()} (maior primeiro)">${n}${st.ord === k ? ' ▼' : ''}</button></th>`).join('')}<th>Última preventiva</th><th>Antes → depois</th></tr></thead><tbody>
+        <p class="sub">${comPrev ? `Compara os chamados ${JANELA} dias antes e ${JANELA} dias depois de cada preventiva feita. ${total.n ? `No total: <b>${total.antes}</b> antes → <b>${total.depois}</b> depois.` : 'O antes → depois aparece quando a primeira preventiva completar ' + JANELA + ' dias.'}` : 'Linha = chamados nos últimos 12 meses · 3 meses = últimos 3 meses fechados contra os 3 anteriores. As colunas da preventiva aparecem quando houver preventiva assinada.'}</p></div>
+        <div class="corr-tab-box"><table class="corr-tab"><thead><tr><th>Máquina</th>${[['os', 'Chamados'], ['hh', 'Tempo em chamado'], ['pl', 'Parada de linha']].map(([k, n]) => `<th aria-sort="${st.ord === k ? 'descending' : 'none'}"><button type="button" class="th-ord ${st.ord === k ? 'on' : ''}" data-ord="${k}" title="Ordenar por ${n.toLowerCase()} (maior primeiro)">${n}${st.ord === k ? ' ▼' : ''}</button></th>`).join('')}<th>12 meses</th><th title="Últimos 3 meses fechados contra os 3 anteriores">3 meses</th>${comPrev ? '<th>Última preventiva</th><th>Antes → depois</th>' : ''}</tr></thead><tbody>
         ${linhas.map((x) => {
           const v = x.ad.n ? (x.ad.depois < x.ad.antes ? 'melhor' : x.ad.depois > x.ad.antes ? 'pior' : 'igual') : '';
+          const vv = x.var3 == null ? '' : x.var3 > 5 ? 'ruim' : x.var3 < -5 ? 'bom' : '';
           return `<tr><th scope="row"><a href="#c-${slugMaq(x.c)}">${esc(nomeMaq(x.c))}</a><small>${esc(porCodigo[x.c]?.modelo || (x.c === SEM_MAQUINA ? 'aberto por pessoa, sem máquina no assunto' : 'forno sem código no SM'))}</small></th>
             <td>${x.os}</td><td><div class="corr-barra"><i style="width:${x.hh / maxH * 100}%"></i><span>${hrs(x.hh)}</span></div></td><td>${x.pl || '–'}</td>
-            <td>${x.ult ? dataBR(x.ult) : '<span class="muted">ainda não</span>'}</td>
-            <td>${x.ad.n ? `<span class="corr-ad corr-${v}">${x.ad.antes} → ${x.ad.depois} ${v === 'melhor' ? '▼' : v === 'pior' ? '▲' : '='}</span>` : '<span class="muted">aguardando dados</span>'}</td></tr>`;
-        }).join('') || '<tr><td colspan="6" class="muted">Nenhum chamado no período.</td></tr>'}
+            <td class="td-spark">${sparkline(x.s12, x.var3 > 5 ? '#ff5a36' : x.var3 < -5 ? '#4cc38a' : '#8aa0b8', { w: 120, h: 30, pad: 4, classe: 'spark-mini' }) || '<span class="muted">–</span>'}</td>
+            <td><span class="matriz-var ${vv}">${x.var3 == null ? '–' : `${x.var3 > 5 ? '▲' : x.var3 < -5 ? '▼' : '='} ${Math.abs(x.var3)}%`}</span></td>
+            ${comPrev ? `<td>${x.ult ? dataBR(x.ult) : '<span class="muted">ainda não</span>'}</td>
+            <td>${x.ad.n ? `<span class="corr-ad corr-${v}">${x.ad.antes} → ${x.ad.depois} ${v === 'melhor' ? '▼' : v === 'pior' ? '▲' : '='}</span>` : '<span class="muted">aguardando dados</span>'}</td>` : ''}</tr>`;
+        }).join('') || `<tr><td colspan="${comPrev ? 8 : 6}" class="muted">Nenhum chamado no período.</td></tr>`}
         </tbody></table></div>
       </section>
 
+      <section class="bloco"><div class="bloco-topo"><h2>Sistemas que mais param · Pareto</h2><p class="sub">Barras = chamados por sistema (pelo assunto) · linha amarela = % acumulado · passe o mouse para ver tempo e parada de linha</p></div>
+        ${pareto(lista, agora)}</section>
+
+      <section class="bloco"><div class="bloco-topo"><h2>Máquinas × meses</h2><p class="sub">Chamados por máquina nos últimos 12 meses${st.setor === 'todos' ? '' : ' · ' + esc(SETORES[st.setor]?.nome || '')} · clique na máquina para abrir</p></div>
+        ${matrizMaquinasMeses(base, h, cods, nomeMaq, slugMaq)}</section>
+
       <div class="col2 col2-igual">
-        <section class="bloco"><div class="bloco-topo"><h2>Sistemas que mais param</h2><p class="sub">Pelo assunto do chamado: quantas vezes · tempo em chamado</p></div>
-          ${sisL.length ? `<div class="barras corr-sis">${sisL.map(([n, v]) => `<div class="barra-lin"><span>${esc(n)}</span><div class="barra barra-red"><i style="width:${v.n / maxS * 100}%"></i></div><b>${v.n}× · ${hrs(v.h)}</b></div>`).join('')}</div>` : '<p class="vazio-p">Sem chamados no período.</p>'}
-        </section>
+        ${rankingAtendentes(lista, { sub: 'Chamados atendidos no período (segue o filtro de setor) · máquinas que mais atendeu · tempo médio até fechar', limite: 10, comMaquina: true })}
         <section class="bloco"><div class="bloco-topo"><h2>Quebrou logo depois da preventiva</h2><p class="sub">Chamado até ${LOGO_DEPOIS} dias depois da preventiva: vale revisar o item do formulário</p></div>
           ${alertas.length ? `<ul class="corr-alertas">${alertas.sort((a, b) => b.o.abertura.localeCompare(a.o.abertura)).slice(0, 12).map((a) => `<li><b>${esc(a.o.maquina)}</b> · OM ${a.o.os} · ${esc(a.o.assunto)}<small>${a.dias} ${a.dias === 1 ? 'dia' : 'dias'} depois da preventiva de ${dataBR(a.d)} · ${esc(a.o.sistema)}</small></li>`).join('')}</ul>` : '<p class="vazio-p">Nenhum caso até agora.</p>'}
         </section>
       </div>
-
-      ${rankingAtendentes(lista, { sub: 'Chamados atendidos no período (segue o filtro de setor) · máquinas que mais atendeu · tempo médio até fechar', limite: 10, comMaquina: true })}
 
       <section class="bloco"><div class="bloco-topo"><h2>Chamados</h2><p class="sub">${lista.length} no período${gestao ? ' · a máquina pode ser trocada quando a regra errar' : ''}</p></div>
         <div class="corr-tab-box"><table class="corr-tab corr-lista"><thead><tr><th>OM</th><th>Máquina</th><th>Assunto</th><th>Prioridade</th><th>Status</th><th>Abertura</th><th>Tempo</th></tr></thead><tbody>
@@ -168,21 +181,23 @@ export async function telaCorretivas(el, { gestao } = {}) {
           <td class="corr-os">${o.os}</td>
           <td>${gestao ? `<select class="campo campo-sm" data-maq="${o.os}" aria-label="Máquina da OM ${o.os}">${opcoesMaq.map((c) => `<option value="${c}" ${c === o.maquina ? 'selected' : ''}>${esc(nomeMaq(c))}</option>`).join('')}</select>${o.maquina_manual ? '<small class="muted">escolhida à mão</small>' : o.celula ? `<small class="muted">forno da célula ${esc(o.celula)}</small>` : ''}` : esc(nomeMaq(o.maquina))}</td>
           <td>${esc(o.assunto)}<small class="muted">${esc(o.sistema || '')} · ${esc(o.atendente || 'sem atendente')}</small></td>
-          <td><span class="corr-pri corr-pri-${/parada/i.test(o.prioridade || '') ? 'pl' : /cr[ií]tico/i.test(o.prioridade || '') ? 'cr' : 'nm'}">${esc(o.prioridade || '–')}</span></td>
+          <td><span class="corr-pri corr-pri-${ehPL(o) ? 'pl' : /cr[ií]tico/i.test(o.prioridade || '') ? 'cr' : 'nm'}">${esc(o.prioridade || '–')}</span></td>
           <td>${esc(o.status || '')}</td><td>${dataHoraBR(o.abertura)}</td><td>${hrs(horasParada(o, agora))}${fechado(o) ? '' : ' <small class="muted">em aberto</small>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nenhum chamado no período.</td></tr>'}
         </tbody></table>${lista.length > 300 ? '<p class="sub">Mostrando os 300 mais recentes.</p>' : ''}</div>
       </section>
     </div>`;
     contarNumeros(el);
-    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; st.mes = null; try { sessionStorage.setItem('prev-corr-per', st.per); } catch (e) { /* ok */ } desenhar(); }; });
-    el.querySelectorAll('[data-setor]').forEach((b) => { b.onclick = () => { st.setor = b.dataset.setor; desenhar(); }; });
+    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; st.mes = null; st.calor = null; try { sessionStorage.setItem('prev-corr-per', st.per); } catch (e) { /* ok */ } desenhar(); }; });
+    el.querySelectorAll('[data-setor]').forEach((b) => { b.onclick = () => { st.setor = b.dataset.setor; st.calor = null; desenhar(); }; });
     ligarMeses(el, st, desenhar);
+    ligarCalor(el, st, desenhar);
     el.querySelectorAll('[data-ord]').forEach((b) => { b.onclick = () => { st.ord = b.dataset.ord; desenhar(); }; });
     el.querySelectorAll('[data-maq]').forEach((s) => { s.onchange = async () => {
       const os = +s.dataset.maq, o = todas.find((x) => x.os === os), val = s.value === o.maquina_auto ? null : s.value;
       try { await definirMaquinaCorretiva(os, val); todas = await corretivas(); toast(`OM ${os} agora é da ${nomeMaq(s.value)}.`); desenhar(); } catch (e) { toast('Não foi possível trocar: ' + (e?.message || e), 'erro'); }
     }; });
     el.querySelector('[data-importar]').onclick = () => abrirImportar(async () => { todas = await corretivas(); desenhar(); });
+    el.querySelector('[data-relatorio]').onclick = () => abrirRelatorioMensal(todas);
   };
   desenhar();
 }
@@ -224,15 +239,14 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
   el.innerHTML = esqueleto('Carregando chamados da máquina');
   let todas; try { todas = await corretivas(); } catch (e) { el.innerHTML = `<div class="pag"><p class="aviso aviso-red">${ic('alert')}<span>${esc(e?.message || e)}</span></p></div>`; return; }
   const m = porCodigo[cod];
-  const st = { per: 'tudo', pri: 'todas', busca: '', mostrar: 60, mes: null };
+  const st = { per: 'tudo', pri: 'todas', busca: '', mostrar: 60, mes: null, calor: null };
   const desenhar = () => {
     const h = hoje(), agora = Date.now();
-    const ini = st.per === '30' ? somaDiasIso(h, -30) : st.per === '90' ? somaDiasIso(h, -90) : st.per === 'mes' ? h.slice(0, 8) + '01' : st.per === 'ano' ? h.slice(0, 5) + '01-01' : '0000';
+    const jan = janelas(st.per, h);
     const daMaq = todas.filter((c) => c.maquina === cod).sort((a, b) => String(b.abertura).localeCompare(String(a.abertura)));
-    const lista = daMaq.filter((c) => diaDe(c.abertura) >= ini);
-    const horas = lista.reduce((s, c) => s + horasParada(c, agora), 0);
-    const fech = lista.filter(fechado), mttr = fech.length ? fech.reduce((s, c) => s + horasParada(c), 0) / fech.length : 0;
-    const ehPL = (c) => /parada/i.test(c.prioridade || '');
+    const lista = daMaq.filter((c) => noIntervalo(c, jan.atual));
+    const ant = jan.ant ? daMaq.filter((c) => noIntervalo(c, jan.ant)) : null;
+    const horasDe = (l) => l.reduce((s, c) => s + horasParada(c, agora), 0), horas = horasDe(lista);
     // evolução mês a mês (do primeiro chamado do período até este mês)
     const meses = mesesDe(lista, h, agora);
     const maxM = Math.max(1, ...meses.map((x) => x.n));
@@ -250,13 +264,14 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
         <h1 class="tit">${esc(nomeMaq(cod))} · corretivas</h1><p class="sub">${m ? `${esc(m.equipamento)} · ${esc(m.modelo)} · ${esc(SETORES[m.setor].nome)}` : cod === FORNOS_GERAL ? 'Chamados dos fornos sem forno identificado no assunto' : 'Chamados abertos por pessoas, sem máquina no assunto'} · ${daMaq.length} chamados no total</p></div>
         ${m ? `<a class="btn btn-sec" href="#h-${m.slug}">${ic('historico')} Preventivas desta máquina</a>` : ''}</div>
       <div class="corr-filtros"><div class="ma-abas">${PERIODOS.map(([k, n]) => `<button type="button" class="chip ${st.per === k ? 'on' : ''}" data-per="${k}">${n}</button>`).join('')}</div></div>
-      <div class="ind-hero corr-kpis">
-        <div class="kpi"><b data-contar>${lista.length}</b><span>chamados${st.per === 'tudo' ? '' : ' no período'}</span></div>
-        <div class="kpi" style="--c:var(--yellow)"><b data-contar>${lista.filter(ehPL).length}</b><span>parada de linha</span></div>
-        <div class="kpi" style="--c:var(--danger)"><b>${hrs(horas)}</b><span>com chamado aberto</span></div>
-        <div class="kpi" style="--c:#5aa2ff"><b>${hrs(mttr)}</b><span>tempo médio até fechar</span></div>
-        <div class="kpi" style="--c:#f0a93b"><b>${media.toFixed(1).replace('.', ',')}</b><span>chamados por mês (média)</span></div>
-      </div>
+      <div class="kpi2-grade">${[
+        { rot: st.per === 'tudo' ? 'Chamados' : 'Chamados no período', val: lista.length, atual: lista.length, anterior: ant?.length, serie: serie12(daMaq, h, (l) => l.length), cor: '#5aa2ff', sub: ant ? `${ant.length} no período anterior` : 'todo o histórico' },
+        { rot: 'Parada de linha', val: lista.filter(ehPL).length, atual: lista.filter(ehPL).length, anterior: ant?.filter(ehPL).length, serie: serie12(daMaq, h, (l) => l.filter(ehPL).length), cor: '#ff5a36', corVal: 'var(--danger)', sub: lista.length ? `${Math.round(lista.filter(ehPL).length / lista.length * 100)}% dos chamados` : '' },
+        { rot: 'Tempo com chamado aberto', val: hrs(horas), atual: horas, anterior: ant ? horasDe(ant) : null, serie: serie12(daMaq, h, horasDe), cor: '#f0a93b', sub: 'soma de todos os chamados' },
+        { rot: 'Tempo médio até fechar', val: hrs(mttr(lista)), atual: mttr(lista), anterior: ant ? mttr(ant) : null, serie: serie12(daMaq, h, mttr), cor: '#4cc38a', sub: ant && mttr(ant) ? `antes: ${hrs(mttr(ant))}` : 'da abertura ao fechamento' },
+        { rot: 'Chamados por mês', val: media.toFixed(1).replace('.', ','), serie: [], cor: '#8aa0b8', sub: 'média no período' },
+      ].map((k) => cartaoKpi({ ...k, rotAnt: jan.rot ? `comparado com ${jan.rot}` : '' })).join('')}</div>
+
 
       <section class="bloco"><div class="bloco-topo"><h2>Chamados mês a mês</h2>
         <div class="sem-leg"><span><i class="lg-atr"></i>Parada de linha</span><span><i class="lg-outros"></i>Outros</span><span><i class="lg-media"></i>Média ${media.toFixed(1).replace('.', ',')}/mês</span><span class="muted">Clique num mês para ver os chamados</span></div></div>
@@ -264,15 +279,18 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
         ${st.mes ? painelMes(st.mes, lista, meses, agora) : ''}
       </section>
 
+      <section class="bloco"><div class="bloco-topo"><h2>Maiores problemas · Pareto</h2><p class="sub">Chamados por sistema (pelo assunto) · linha amarela = % acumulado</p></div>
+        ${pareto(lista, agora)}</section>
+
+      <section class="bloco"><div class="bloco-topo"><h2>Quando os chamados abrem</h2><p class="sub">Dia da semana × hora da abertura</p></div>
+        ${mapaCalor(lista, st.calor)}${st.calor ? painelChamados({ eyebrow: 'Horário selecionado', titulo: nomeHorario(st.calor)[0].toUpperCase() + nomeHorario(st.calor).slice(1), lista: chamadosDoHorario(lista, ...st.calor), agora, fechar: 'data-fechar-calor' }) : ''}</section>
+
       <div class="col2 col2-igual">
-        <section class="bloco"><div class="bloco-topo"><h2>Maiores problemas</h2><p class="sub">Por sistema, pelo assunto: vezes · tempo em chamado</p></div>
-          ${sisL.length ? `<div class="barras corr-sis">${sisL.map(([n, v]) => `<div class="barra-lin" title="${esc(n)}: ${v.n} chamados, ${v.pl} parada de linha"><span>${esc(n)}</span><div class="barra barra-red"><i style="width:${v.n / maxS * 100}%"></i></div><b>${v.n}× · ${hrs(v.h)}</b></div>`).join('')}</div>` : '<p class="vazio-p">Sem chamados.</p>'}
-        </section>
         <section class="bloco"><div class="bloco-topo"><h2>Problemas que se repetem</h2><p class="sub">Mesmo assunto aberto mais de uma vez</p></div>
           ${repL.length ? `<ul class="corr-rep">${repL.map((r) => `<li><b>${r.n}×</b><span>${esc(r.ex)}<small>último em ${dataBR(diaDe(r.ult))}</small></span></li>`).join('')}</ul>` : '<p class="vazio-p">Nenhum assunto repetido.</p>'}
         </section>
+        ${rankingAtendentes(lista, { sub: 'Chamados atendidos nesta máquina · tempo médio até fechar' })}
       </div>
-      ${rankingAtendentes(lista, { sub: 'Chamados atendidos nesta máquina · tempo médio até fechar' })}
 
       <section class="bloco"><div class="bloco-topo"><h2>Todos os chamados</h2><p class="sub">${filtrada.length} de ${lista.length}</p></div>
         <div class="corr-busca"><input class="campo" type="search" data-busca placeholder="Buscar por assunto, número ou atendente" value="${esc(st.busca)}" aria-label="Buscar chamados">
@@ -287,7 +305,8 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
       </section>
     </div>`;
     contarNumeros(el);
-    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; st.mes = null; desenhar(); }; });
+    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; st.mes = null; st.calor = null; desenhar(); }; });
+    ligarCalor(el, st, desenhar);
     el.querySelectorAll('[data-pri]').forEach((b) => { b.onclick = () => { st.pri = b.dataset.pri; desenhar(); }; });
     ligarMeses(el, st, desenhar);
     const bus = el.querySelector('[data-busca]'); let t;
@@ -357,19 +376,23 @@ function graficoMeses(meses, media, sel) {
   </div>`;
 }
 function painelMes(k, lista, meses, agora, comMaquina = false) {
-  const doMes = lista.filter((o) => diaDe(o.abertura).startsWith(k)).sort((a, b) => String(a.abertura).localeCompare(String(b.abertura)));
   const m = meses.find((x) => x.k === k) || { n: 0, pl: 0, h: 0 };
-  const sis = {}; doMes.forEach((o) => { sis[o.sistema] = (sis[o.sistema] || 0) + 1; });
+  return painelChamados({ eyebrow: 'Mês selecionado', titulo: nomeMes(k), lista: lista.filter((o) => diaDe(o.abertura).startsWith(k)), agora, comMaquina, fechar: 'data-fechar-mes', resumo: `${m.n} chamados · ${m.pl} parada de linha · ${hrs(m.h)} em chamado` });
+}
+// painel de chamados que abre embaixo de um gráfico (mês clicado, horário clicado)
+function painelChamados({ eyebrow, titulo, lista, agora, comMaquina = false, fechar, resumo }) {
+  const doL = lista.slice().sort((a, b) => String(a.abertura).localeCompare(String(b.abertura)));
+  const sis = {}; doL.forEach((o) => { sis[o.sistema] = (sis[o.sistema] || 0) + 1; });
   const top = Object.entries(sis).sort((a, b) => b[1] - a[1]).slice(0, 4);
-  const pl = (o) => /parada/i.test(o.prioridade || '');
-  return `<div class="cm-painel" role="region" aria-label="Chamados de ${nomeMes(k)}">
-    <div class="cm-painel-topo"><div><span class="eyebrow">Mês selecionado</span><h3>${nomeMes(k)}</h3>
-      <p class="sub">${m.n} chamados · ${m.pl} parada de linha · ${hrs(m.h)} em chamado${top.length ? ` · mais: ${top.map(([n, c]) => `${esc(n)} (${c})`).join(', ')}` : ''}</p></div>
-      <button type="button" class="btn btn-sec btn-sm" data-fechar-mes>${ic('x')} Fechar</button></div>
+  resumo ??= `${doL.length} chamados · ${doL.filter(ehPL).length} parada de linha · ${hrs(doL.reduce((s, c) => s + horasParada(c, agora), 0))} em chamado`;
+  return `<div class="cm-painel" role="region" aria-label="Chamados: ${esc(titulo)}">
+    <div class="cm-painel-topo"><div><span class="eyebrow">${eyebrow}</span><h3>${esc(titulo)}</h3>
+      <p class="sub">${resumo}${top.length ? ` · mais: ${top.map(([n, c]) => `${esc(n)} (${c})`).join(', ')}` : ''}</p></div>
+      <button type="button" class="btn btn-sec btn-sm" ${fechar}>${ic('x')} Fechar</button></div>
     <div class="corr-tab-box"><table class="corr-tab corr-lista"><thead><tr><th>OM</th>${comMaquina ? '<th>Máquina</th>' : ''}<th>Assunto</th><th>Prioridade</th><th>Abertura</th><th>Fechamento</th><th>Tempo</th><th>Atendente</th></tr></thead><tbody>
-      ${doMes.map((o) => `<tr><td class="corr-os">${o.os}</td>${comMaquina ? `<td><a href="#c-${slugMaq(o.maquina)}">${esc(nomeMaq(o.maquina))}</a></td>` : ''}<td>${esc(o.assunto)}<small class="muted">${esc(o.sistema || '')}</small></td>
-        <td><span class="corr-pri corr-pri-${pl(o) ? 'pl' : /cr[ií]tico/i.test(o.prioridade || '') ? 'cr' : 'nm'}">${esc(o.prioridade || '–')}</span></td>
-        <td>${dataHoraBR(o.abertura)}</td><td>${fechado(o) ? dataHoraBR(o.ultimo_atend || o.ultima_mod) : '<span class="muted">em aberto</span>'}</td><td>${hrs(horasParada(o, agora))}</td><td>${esc(o.atendente || '–')}</td></tr>`).join('') || `<tr><td colspan="${comMaquina ? 8 : 7}" class="muted">Nenhum chamado neste mês.</td></tr>`}
+      ${doL.map((o) => `<tr><td class="corr-os">${o.os}</td>${comMaquina ? `<td><a href="#c-${slugMaq(o.maquina)}">${esc(nomeMaq(o.maquina))}</a></td>` : ''}<td>${esc(o.assunto)}<small class="muted">${esc(o.sistema || '')}</small></td>
+        <td><span class="corr-pri corr-pri-${ehPL(o) ? 'pl' : /cr[ií]tico/i.test(o.prioridade || '') ? 'cr' : 'nm'}">${esc(o.prioridade || '–')}</span></td>
+        <td>${dataHoraBR(o.abertura)}</td><td>${fechado(o) ? dataHoraBR(o.ultimo_atend || o.ultima_mod) : '<span class="muted">em aberto</span>'}</td><td>${hrs(horasParada(o, agora))}</td><td>${esc(o.atendente || '–')}</td></tr>`).join('') || `<tr><td colspan="${comMaquina ? 8 : 7}" class="muted">Nenhum chamado.</td></tr>`}
     </tbody></table></div>
   </div>`;
 }
@@ -395,4 +418,44 @@ function ligarMeses(el, st, desenhar) {
     if (st.mes) el.querySelector('.cm-painel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }; });
   el.querySelectorAll('[data-fechar-mes]').forEach((b) => { b.onclick = () => { st.mes = null; const y = scrollY; desenhar(); scrollTo(0, y); }; });
+}
+
+function ligarCalor(el, st, desenhar) {
+  el.querySelectorAll('[data-calor]').forEach((b) => { b.onclick = () => {
+    const [d, hh] = b.dataset.calor.split('-').map(Number);
+    st.calor = st.calor && st.calor[0] === d && st.calor[1] === hh ? null : [d, hh]; const y = scrollY; desenhar(); scrollTo(0, y);
+    if (st.calor) el.querySelector('[data-fechar-calor]')?.closest('.cm-painel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }; });
+  el.querySelectorAll('[data-fechar-calor]').forEach((b) => { b.onclick = () => { st.calor = null; const y = scrollY; desenhar(); scrollTo(0, y); }; });
+}
+
+// ---------- relatório mensal (PDF A4) ----------
+export function mesesComChamados(todas) {
+  return [...new Set(todas.map((c) => diaDe(c.abertura).slice(0, 7)).filter(Boolean))].sort().reverse();
+}
+function abrirRelatorioMensal(todas) {
+  const meses = mesesComChamados(todas);
+  if (!meses.length) { toast('Importe os chamados do SM primeiro.'); return; }
+  const h = hoje(), atual = h.slice(0, 7);
+  // padrão: o último mês fechado
+  const pad = meses.find((k) => k < atual) || meses[0];
+  const montar = (k) => relatorioMensalA4({ k, lista: todas, nomeMaq, banner: 'logo-vetore.png', geradoEm: dataBR(h) });
+  abrirModal({ titulo: 'Relatório mensal de corretivas', html: `
+    <div class="relm">
+      <div class="relm-topo"><label>Mês <select class="campo" data-relm-mes>${meses.map((k) => `<option value="${k}" ${k === pad ? 'selected' : ''}>${nomeMes(k)}${k === atual ? ' (em andamento)' : ''}</option>`).join('')}</select></label>
+        <button type="button" class="btn btn-pri" data-relm-pdf>${ic('baixar')} Baixar PDF</button></div>
+      <div class="relm-previa"><div class="folhas" data-relm-previa></div></div>
+      <p class="sub">Uma página A4 com os números do mês, a comparação com o mês anterior, os últimos 12 meses, as máquinas e os problemas que mais pararam.</p>
+    </div>`, largo: true,
+  onAbrir: (c) => {
+    const sel = c.querySelector('[data-relm-mes]'), pv = c.querySelector('[data-relm-previa]'), bt = c.querySelector('[data-relm-pdf]');
+    const ver = () => { pv.innerHTML = montar(sel.value); const k = Math.min(1, (pv.clientWidth || 600) / 794); pv.style.setProperty('--k', k); };
+    sel.onchange = ver; ver(); requestAnimationFrame(ver);
+    bt.onclick = async () => {
+      bt.disabled = true; bt.textContent = 'Gerando PDF…';
+      try { const blob = await pdfDeHtml(montar(sel.value), { title: `Corretivas · ${nomeMes(sel.value)}`, subject: 'Relatório mensal de corretivas' }); await salvarArquivo(`Corretivas ${sel.value} - Relatório mensal.pdf`, blob); toast('PDF gerado.'); }
+      catch (e) { toast('Não foi possível gerar o PDF: ' + (e?.message || e), 'erro'); }
+      finally { bt.disabled = false; bt.innerHTML = `${ic('baixar')} Baixar PDF`; }
+    };
+  } });
 }

@@ -63,9 +63,9 @@ export function toast(msg, tipo = 'ok') {
   const t = document.createElement('div'); t.className = `toast toast-${tipo}`; t.textContent = msg; box.append(t);
   setTimeout(() => { t.classList.add('saindo'); setTimeout(() => t.remove(), 300); }, 3200);
 }
-export function abrirModal({ titulo, html, onAbrir }) {
+export function abrirModal({ titulo, html, onAbrir, largo = false }) {
   const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
-  fundo.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="${esc(titulo)}">
+  fundo.innerHTML = `<div class="modal ${largo ? 'modal-largo' : ''}" role="dialog" aria-modal="true" aria-label="${esc(titulo)}">
     <header><h2>${esc(titulo)}</h2><button type="button" class="icone" data-fechar aria-label="Fechar">${ic('x')}</button></header>
     <div class="modal-corpo">${html}</div></div>`;
   const fechar = () => { fundo.remove(); document.removeEventListener('keydown', tecla); };

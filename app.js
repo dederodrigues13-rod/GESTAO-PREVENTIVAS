@@ -19,7 +19,8 @@ import { telaFormulario, telaEnviado, telaRelatorio, confirmarExclusao } from '.
 import { telaAcoes, telaHistorico, telaIndicadores, telaAvisos, telaVerificacao, stAcao } from './telas.js';
 import { acoes } from './store.js';
 import { telaTV, sairTV } from './tv.js';
-import { telaCorretivas, telaCorretivasMaquina, ouvirFavorito } from './corretivas.js';
+import { telaCorretivas, telaCorretivasMaquina, ouvirFavorito, slugMaq } from './corretivas.js';
+import { corretivas as listaCorretivas } from './store.js';
 
 const URL_APP = location.origin + '/';
 const app = document.getElementById('app');
@@ -360,29 +361,64 @@ function calendario(el, setor) {
 
 // ---------- layout 3D ----------
 let cena = null;
+// corretivas por máquina no 3D: nível pela quantidade de chamados no período (terços entre as máquinas com chamado)
+const PER3D = [['30', '30 dias'], ['90', '90 dias'], ['365', '12 meses']];
+async function corretivas3D(dias) {
+  const ini = new Date(Date.now() - dias * 864e5).toISOString().slice(0, 10);
+  const cont = {}; (await listaCorretivas()).forEach((c) => { if (!c.abertura || c.abertura.slice(0, 10) < ini) return; const x = (cont[c.maquina] ??= { n: 0, pl: 0 }); x.n++; if (/parada/i.test(c.prioridade || '')) x.pl++; });
+  const ns = Object.entries(cont).filter(([k]) => porCodigo[k]).map(([, v]) => v.n).sort((a, b) => a - b);
+  const t1 = ns[Math.floor(ns.length / 3)] ?? 1, t2 = ns[Math.floor(ns.length * 2 / 3)] ?? 1;
+  const nivel = (n) => (!n ? 'na' : n >= t2 && n > t1 ? 'bx' : n >= t1 && ns.length > 2 ? 'at' : 'ok');
+  return { cont, nivel, faixas: { ok: `Poucos (até ${Math.max(1, t1 - 1)})`, at: `Médio (${t1}–${Math.max(t1, t2 - 1)})`, bx: `Muitos (${t2} ou mais)`, na: 'Sem chamados' } };
+}
+let modo3d = sessionStorage.getItem?.('prev-modo3d') || 'prev', dias3d = +(sessionStorage.getItem?.('prev-dias3d') || 90);
 async function layout(el, qual) {
   const nomes = { layout: ['al', 'Injeção de alumínio'], 'layout-pps': ['pps', 'PPS'], 'layout-fornos': ['fornos', 'Fornos torre e de espera'] };
   const [setor] = nomes[qual];
-  const pm = porMaquina(); const maqs = MAQUINAS.filter((m) => m.setor === setor);
+  const maqs = MAQUINAS.filter((m) => m.setor === setor);
   const pequeno = window.matchMedia('(max-width: 760px)').matches;
   el.innerHTML = `<div class="pag larga">
     <div class="filtros"><div class="seg-tabs">${Object.entries(nomes).map(([h, [, n]]) => `<a href="#${h}" class="${h === qual ? 'on' : ''}">${n}</a>`).join('')}</div>
-      <div class="legenda">${Object.entries(ST3D).map(([k, n]) => `<span><i style="background:${COR3D[k]}"></i>${n}</span>`).join('')}</div></div>
+      <div class="modo3d" role="group" aria-label="O que colorir no 3D"><button type="button" class="chip" data-modo="prev">Situação da preventiva</button><button type="button" class="chip" data-modo="corr">Corretivas</button>
+        <span class="modo3d-per" data-per3d>${PER3D.map(([k, n]) => `<button type="button" class="chip chip-sm" data-dias="${k}">${n}</button>`).join('')}</span></div></div>
+    <div class="legenda" data-legenda></div>
     ${pequeno ? `<button type="button" class="btn btn-sec" data-ver3d>${ic('cubo')} Ver em 3D</button>` : ''}
     <div class="p3d-caixa" data-p3d ${pequeno ? 'hidden' : ''}></div>
     ${setor === 'fornos' ? '<p class="sub nota-3d">Posições dos fornos de espera ilustrativas: falta confirmar em qual célula fica cada VTFE. Os fornos torre 1 e 2 também aparecem no galpão da injeção de alumínio.</p>' : ''}
     ${setor === 'pps' ? '<p class="sub nota-3d">Posições do PPS ilustrativas: falta o croqui do setor.</p>' : ''}
-    <div class="cards">${maqs.map((m) => { const s = pm[m.codigo]; return `<button type="button" class="card-maq" data-maq="${m.codigo}" style="--c:${COR3D[s.st3d]}"><b>${m.codigo}</b><small>${esc(m.modelo)}</small><span>${ST3D[s.st3d]}</span><em>${s.proxima ? `${semana(s.proxima.data)} ${dataBR(s.proxima.data)}` : '—'}</em></button>`; }).join('')}</div>
+    <div class="cards" data-cards></div>
   </div>`;
-  ligarItens(el);
   const caixa = el.querySelector('[data-p3d]');
+  let dados = null; // lista para o 3D no modo atual
+  const aplicar = async () => {
+    el.querySelectorAll('[data-modo]').forEach((b) => b.classList.toggle('on', b.dataset.modo === modo3d));
+    el.querySelectorAll('[data-dias]').forEach((b) => b.classList.toggle('on', +b.dataset.dias === dias3d));
+    el.querySelector('[data-per3d]').hidden = modo3d !== 'corr';
+    const pm = porMaquina(), leg = el.querySelector('[data-legenda]'), cards = el.querySelector('[data-cards]');
+    if (modo3d === 'corr') {
+      let r; try { r = await corretivas3D(dias3d); } catch (e) { toast('Não foi possível carregar as corretivas: ' + (e?.message || e), 'erro'); modo3d = 'prev'; return aplicar(); }
+      if (modo3d !== 'corr') return;
+      leg.innerHTML = ['bx', 'at', 'ok', 'na'].map((k) => `<span><i style="background:${COR3D[k]}"></i>${r.faixas[k]}</span>`).join('') + `<span class="muted">chamados do portal SM nos últimos ${PER3D.find(([k]) => +k === dias3d)[1]}</span>`;
+      dados = Object.values(pm).map((s) => { const c = r.cont[s.nome]?.n || 0; return { nome: s.nome, st3d: r.nivel(c), rotulo: c ? `${c} chamado${c > 1 ? 's' : ''}` : '' }; });
+      cards.innerHTML = maqs.slice().sort((a, b) => (r.cont[b.codigo]?.n || 0) - (r.cont[a.codigo]?.n || 0)).map((m) => { const c = r.cont[m.codigo] || { n: 0, pl: 0 };
+        return `<a class="card-maq" href="#c-${slugMaq(m.codigo)}" style="--c:${COR3D[r.nivel(c.n)]}"><b>${m.codigo}</b><small>${esc(m.modelo)}</small><span>${c.n} chamado${c.n === 1 ? '' : 's'}</span><em>${c.pl ? `${c.pl} parada de linha` : 'sem parada de linha'}</em></a>`; }).join('');
+    } else {
+      leg.innerHTML = Object.entries(ST3D).map(([k, n]) => `<span><i style="background:${COR3D[k]}"></i>${n}</span>`).join('');
+      dados = Object.values(pm).map((s) => ({ nome: s.nome, st3d: s.st3d, rotulo: s.rotulo }));
+      cards.innerHTML = maqs.map((m) => { const s = pm[m.codigo]; return `<button type="button" class="card-maq" data-maq="${m.codigo}" style="--c:${COR3D[s.st3d]}"><b>${m.codigo}</b><small>${esc(m.modelo)}</small><span>${ST3D[s.st3d]}</span><em>${s.proxima ? `${semana(s.proxima.data)} ${dataBR(s.proxima.data)}` : '—'}</em></button>`; }).join('');
+      ligarItens(cards);
+    }
+    cena?.atualizar?.(dados);
+  };
+  el.querySelectorAll('[data-modo]').forEach((b) => { b.onclick = () => { modo3d = b.dataset.modo; try { sessionStorage.setItem('prev-modo3d', modo3d); } catch (e) { /* ok */ } aplicar(); }; });
+  el.querySelectorAll('[data-dias]').forEach((b) => { b.onclick = () => { dias3d = +b.dataset.dias; try { sessionStorage.setItem('prev-dias3d', dias3d); } catch (e) { /* ok */ } aplicar(); }; });
+  await aplicar();
   const montar = async () => {
     caixa.hidden = false; cena?.destruir?.(); cena = null;
-    const lista = Object.values(porMaquina()).map((s) => ({ nome: s.nome, st3d: s.st3d, rotulo: s.rotulo }));
     try {
       if (setor === 'al') { const { criarPlanta3D } = await import('./planta3d.js'); cena = await criarPlanta3D(caixa, { ficha: fichaHtml }); }
       else { const { criarCena3D } = await import('./cena3d.js'); cena = await criarCena3D(caixa, { layout: setor, ficha: fichaHtml, modelos: Object.fromEntries(MAQUINAS.map((m) => [m.codigo, m.modelo])) }); }
-      cena.atualizar(lista);
+      cena.atualizar(dados);
       const alvo = sessionStorage.getItem?.('prev-abrir3d'); if (alvo) { sessionStorage.removeItem('prev-abrir3d'); cena.abrir(alvo); }
     } catch (e) { console.error(e); caixa.innerHTML = `<div class="p3d-erro">${ic('alert')} Não foi possível abrir o 3D neste navegador (${esc(e.message || e)}). Use os cards abaixo.</div>`; }
   };
