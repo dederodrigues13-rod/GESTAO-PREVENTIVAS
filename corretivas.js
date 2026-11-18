@@ -7,7 +7,7 @@
 import { MAQUINAS, porCodigo, SETORES, CELULA_VTFE } from './dados.js';
 import { itens, hoje } from './situacao.js';
 import { corretivas, importarCorretivas, definirMaquinaCorretiva } from './store.js';
-import { lerChamados, horasParada, fechado, FORNOS_GERAL, SEM_MAQUINA } from './corretivas-regras.js';
+import { lerChamados, conferirLeitura, horasParada, fechado, FORNOS_GERAL, SEM_MAQUINA } from './corretivas-regras.js';
 import { esc, ic, dataBR, dataHoraBR, toast, abrirModal, contarNumeros, esqueleto } from './ui.js';
 
 const APP = location.origin;
@@ -25,7 +25,7 @@ const somaDiasIso = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDa
 // Lê as linhas da tabela que está na tela do SM e manda para o sistema numa janela nova.
 // Grades com colunas congeladas guardam cada linha em duas tabelas: junta pelo índice da linha.
 export function codigoFavorito() {
-  const js = `(()=>{const A=${JSON.stringify(APP)};const g=new Map();let n=0;document.querySelectorAll('tr').forEach(t=>{const k=t.getAttribute('datagrid-row-index')??t.getAttribute('data-index')??t.getAttribute('aria-rowindex')??('r'+(n++));const c=[...t.cells].map(x=>(x.innerText||'').replace(/\\s+/g,' ').trim());g.set(k,(g.get(k)||[]).concat(c))});const V=[...g.values()].map(c=>c.join('\\t'));const L=V.filter(x=>/\\b\\d{4,7}\\b/.test(x)&&/\\d{2}\\/\\d{2}\\/\\d{4}/.test(x));const H=[...document.querySelectorAll('tr')].filter(t=>/Priorid|Solicitante|Identifica/.test(t.innerText||'')&&!/\\d{2}\\/\\d{2}\\/\\d{4}/.test(t.innerText||''));const h=H.flatMap(t=>[...t.cells].map(x=>(x.innerText||'').replace(/\\s+/g,' ').trim())).join('\\t');if(!L.length){alert('Nenhum chamado na tela. Abra a lista de Chamados do SM e tente de novo.');return}const w=window.open(A+'/#corretivas','gestao-preventivas');if(!w){alert('O navegador bloqueou a janela. Libere pop-ups para este site.');return}const m={tipo:'sm-chamados',texto:(h?h+'\\n':'')+L.join('\\n'),qtd:L.length};let k=0;const i=setInterval(()=>{try{w.postMessage(m,A)}catch(e){}if(++k>80)clearInterval(i)},500);addEventListener('message',e=>{if(e.origin===A&&e.data==='sm-ok')clearInterval(i)})})()`;
+  const js = `(()=>{const A=${JSON.stringify(APP)};const V=x=>{const s=getComputedStyle(x);return s.display!=='none'&&s.visibility!=='hidden'&&x.offsetWidth>0};const g=new Map();let n=0;document.querySelectorAll('tr').forEach(t=>{const k=t.getAttribute('datagrid-row-index')??t.getAttribute('data-index')??t.getAttribute('aria-rowindex')??('r'+(n++));const c=[...t.cells].filter(V).map(x=>(x.innerText||'').replace(/\\s+/g,' ').trim());g.set(k,(g.get(k)||[]).concat(c))});const R=[...g.values()].map(c=>c.join('\\t'));const L=R.filter(x=>/\\b\\d{4,7}\\b/.test(x)&&/\\d{2}\\/\\d{2}\\/\\d{4}/.test(x));const H=[...document.querySelectorAll('tr')].filter(t=>/Priorid|Solicitante|Identifica/.test(t.innerText||'')&&!/\\d{2}\\/\\d{2}\\/\\d{4}/.test(t.innerText||''));const h=H.flatMap(t=>[...t.cells].filter(V).map(x=>(x.innerText||'').replace(/\\s+/g,' ').trim())).join('\\t');if(!L.length){alert('Nenhum chamado na tela. Abra a lista de Chamados do SM e tente de novo.');return}const w=window.open(A+'/#corretivas','gestao-preventivas');if(!w){alert('O navegador bloqueou a janela. Libere pop-ups para este site.');return}const m={tipo:'sm-chamados',texto:(h?h+'\\n':'')+L.join('\\n'),qtd:L.length};let k=0;const i=setInterval(()=>{try{w.postMessage(m,A)}catch(e){}if(++k>80)clearInterval(i)},500);addEventListener('message',e=>{if(e.origin===A&&e.data==='sm-ok')clearInterval(i)})})()`;
   return 'javascript:' + encodeURIComponent(js);
 }
 
@@ -47,6 +47,13 @@ export async function importarPendente() {
 async function importarTexto(txt) {
   const lidos = lerChamados(txt, CELULA_VTFE);
   if (!lidos.length) { toast('Não encontrei chamados nesse texto. Copie as linhas da tabela de Chamados do SM.', 'erro'); return null; }
+  const conf = conferirLeitura(lidos);
+  if (!conf.ok) {
+    abrirModal({ titulo: 'Não importei: as colunas vieram diferentes', html: `<p>Li ${lidos.length} chamados, mas as colunas não bateram (${esc(conf.motivo)}). Nada foi gravado.</p>
+      <p>Confira se a tela de Chamados do SM está com as colunas <b>Status</b>, <b>Solicitante</b>, <b>Data de Abertura</b> e <b>Data Último Atendimento</b> visíveis e tente de novo. Se continuar, mande ao Claude este trecho:</p>
+      <textarea class="campo" rows="5" readonly>${esc(txt.split('\n').slice(0, 3).join('\n').slice(0, 1500))}</textarea>` });
+    return null;
+  }
   const r = await importarCorretivas(lidos);
   toast(`${lidos.length} chamados do SM: ${r.novas} novos, ${r.atualizadas} atualizados.`);
   return r;
@@ -186,6 +193,7 @@ function abrirImportar(depois) {
     c.querySelector('.corr-fav').onclick = (e) => { e.preventDefault(); toast('Arraste este botão para a barra de favoritos do navegador.'); };
     const ta = c.querySelector('[data-colar]'), pv = c.querySelector('[data-previa]'), ok = c.querySelector('[data-ok]');
     ta.oninput = () => { const l = lerChamados(ta.value, CELULA_VTFE); ok.disabled = !l.length;
+      const cf = conferirLeitura(l); if (l.length && !cf.ok) { pv.textContent = `Colunas não reconhecidas (${cf.motivo}). Copie desde a linha dos títulos.`; ok.disabled = true; return; }
       pv.textContent = l.length ? `${l.length} chamados encontrados · ${new Set(l.map((x) => x.maquina)).size} máquinas · de ${dataBR(l.map((x) => diaDe(x.abertura)).filter(Boolean).sort()[0] || '')} a ${dataBR(l.map((x) => diaDe(x.abertura)).filter(Boolean).sort().at(-1) || '')}` : (ta.value.trim() ? 'Não encontrei chamados nesse texto.' : ''); };
     ok.onclick = async () => { ok.disabled = true; ok.textContent = 'Importando…'; try { await importarTexto(ta.value); fechar(); depois?.(); } catch (e) { toast('Não foi possível importar: ' + (e?.message || e), 'erro'); ok.disabled = false; ok.textContent = 'Importar'; } };
   } });

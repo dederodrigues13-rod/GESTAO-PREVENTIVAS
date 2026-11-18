@@ -75,59 +75,76 @@ export function sistemaDe(assunto) {
   return 'Outros / máquina';
 }
 
-// colunas pelo título (a tela do SM pode ter colunas a mais, em outra ordem: Tipo, SLA…)
+// valores conhecidos do SM (servem para achar cada coluna pelo conteúdo, mesmo se vierem colunas a mais)
+const PRI = /^(parada de linha|cr[ií]tico|normal|baixo|baixa|alto|alta|m[eé]dia|urgente)$/i;
+const STS = /^(fechado|aberto|em atendimento|aguardando atendimento|aguardando retorno|atendimento pausado|lixeira|resolvido|cancelado|novo|reaberto)$/i;
+const DT = /^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}/;
+// títulos das colunas (quando vierem): usados para solicitante, atendente e datas
 const TITULOS = { prioridade: /priorid/, os: /identifica/, status: /^status/, tipo: /^tipo/, solicitante: /solicit/, atendente: /^atendente/,
   ultMod: /ultima modifica/, abertura: /abertura/, ultAtend: /ultimo atend/ };
 function mapaTitulos(cel) {
   const n = cel.map(normal), m = {};
-  Object.entries(TITULOS).forEach(([k, re]) => { const i = n.findIndex((x) => re.test(x)); if (i >= 0) m[k] = i; });
+  Object.entries(TITULOS).forEach(([k, re]) => { const i = n.findIndex((x) => re.test(x.trim())); if (i >= 0) m[k] = i; });
   return m.os != null && m.solicitante != null ? m : null;
-}
-function linhaPorTitulo(cel, m, celulaVTFE) {
-  const v = (k) => (m[k] != null ? (cel[m[k]] || '').replace(/\s+/g, ' ').trim() : '');
-  const id = /^(\d{4,7})\s*(.*)$/.exec(v('os')); if (!id) return null;
-  const limpo = (x) => (x === '-' ? '' : x);
-  const assunto = id[2], solicitante = limpo(v('solicitante')), mq = maquinaDe(solicitante, assunto, celulaVTFE);
-  return { os: +id[1], prioridade: v('prioridade') || null, assunto, status: v('status') || null, tipo: v('tipo') || null,
-    solicitante: solicitante || null, atendente: limpo(v('atendente')) || null,
-    ultima_mod: dataSM(limpo(v('ultMod'))), abertura: dataSM(limpo(v('abertura'))), ultimo_atend: dataSM(limpo(v('ultAtend'))),
-    maquina: mq.maquina, maquina_origem: mq.origem, celula: mq.celula || null, sistema: sistemaDe(assunto) };
 }
 const lixo = (c) => /lixeira|exclu|cancel/i.test(c.status || '');
 
+// uma linha da tabela -> chamado. Acha número/assunto, prioridade, status e datas pelo conteúdo;
+// solicitante e atendente pelo título da coluna (se veio) ou logo depois do status.
+function lerLinha(bruto, tit, celulaVTFE) {
+  const cel = bruto.map((c) => String(c || '').replace(/\s+/g, ' ').trim());
+  let iOs = cel.findIndex((c) => /^\d{4,7}\s+\S/.test(c) && !DT.test(c));
+  let assunto;
+  if (iOs >= 0) assunto = /^\d{4,7}\s+(.*)$/.exec(cel[iOs])[1];
+  else { iOs = tit?.os != null && /^\d{4,7}$/.test(cel[tit.os]) ? tit.os : -1; if (iOs < 0) return null; assunto = cel[iOs + 1] || ''; }
+  const os = +/^(\d{4,7})/.exec(cel[iOs])[1];
+  const iPri = cel.findIndex((c) => PRI.test(c)), iSt = cel.findIndex((c, k) => k !== iOs && STS.test(c));
+  const status = iSt >= 0 ? cel[iSt] : '';
+  const limpo = (v) => (!v || v === '-' ? '' : v);
+  const pega = (k) => (tit?.[k] != null ? cel[tit[k]] : undefined);
+  // datas: pelo título, se bater; senão na ordem da tela (Última modificação, Abertura, Último atendimento)
+  const datas = cel.filter((c) => DT.test(c));
+  let ultMod = pega('ultMod'), abertura = pega('abertura'), ultAtend = pega('ultAtend');
+  const okData = (v) => v === undefined || v === '' || v === '-' || DT.test(v);
+  if (!(okData(ultMod) && okData(abertura) && okData(ultAtend)) || (abertura === undefined && datas.length)) {
+    if (datas.length === 3) [ultMod, abertura, ultAtend] = datas;
+    else if (datas.length === 2) [ultMod, abertura] = datas;
+    else if (datas.length) { const ord = datas.slice().sort((a, b) => dataSM(a).localeCompare(dataSM(b))); abertura = ord[0]; ultMod = ord.at(-1); ultAtend = ord.length > 1 ? ord.at(-1) : ''; }
+  }
+  let solicitante = pega('solicitante'), atendente = pega('atendente');
+  const estranho = (v) => v === undefined || PRI.test(v) || STS.test(v) || DT.test(v || '') || /^\d{4,7}/.test(v || '') || /sla/i.test(v || '');
+  if (estranho(solicitante)) { solicitante = iSt >= 0 ? cel[iSt + 1] : ''; atendente = iSt >= 0 ? cel[iSt + 2] : ''; }
+  if (/^manuten/i.test(solicitante || '') && iSt >= 0) { solicitante = cel[iSt + 2]; atendente = cel[iSt + 3]; }   // coluna "Tipo" no meio
+  solicitante = limpo(solicitante); atendente = limpo(atendente);
+  const mq = maquinaDe(solicitante, assunto, celulaVTFE);
+  return {
+    os, prioridade: iPri >= 0 ? cel[iPri] : null, assunto: assunto.trim(), status: status || null,
+    solicitante: solicitante || null, atendente: atendente || null,
+    ultima_mod: dataSM(limpo(ultMod)), abertura: dataSM(limpo(abertura)), ultimo_atend: dataSM(limpo(ultAtend)),
+    maquina: mq.maquina, maquina_origem: mq.origem, celula: mq.celula || null, sistema: sistemaDe(assunto),
+  };
+}
+
 // lê o texto colado (ou mandado pelo botão de favorito): uma OM por linha, colunas separadas por TAB.
-// Se vier a linha dos títulos das colunas (o favorito sempre manda), as colunas são achadas pelo nome;
-// sem títulos, vale a ordem da tela padrão (Prioridade, Nº Assunto, Status, Solicitante, Atendente,
-// Última Modificação, Data de Abertura, Data Último Atendimento).
 export function lerChamados(texto, celulaVTFE = {}) {
   const out = [], vistos = new Set();
-  let titulos = null;
+  let tit = null;
   String(texto || '').split(/\r?\n/).forEach((linha) => {
     const bruto = linha.split('\t');
-    const t = mapaTitulos(bruto); if (t && !bruto.some((c) => /\b\d{2}\/\d{2}\/\d{4}\b/.test(c))) { titulos = t; return; }
-    if (titulos) { const c = linhaPorTitulo(bruto, titulos, celulaVTFE); if (c && !vistos.has(c.os) && !lixo(c)) { vistos.add(c.os); out.push(c); } return; }
-    const cel = linha.split('\t').map((c) => c.replace(/\s+/g, ' ').trim()).filter((c, i, arr) => c !== '' || (i > 0 && i < arr.length - 1));
-    const iOs = cel.findIndex((c) => /^\d{4,7}\s+\S/.test(c) || /^\d{4,7}$/.test(c));
-    if (iOs < 0) return;
-    const m = /^(\d{4,7})\s*(.*)$/.exec(cel[iOs]);
-    const os = +m[1]; if (vistos.has(os)) return; vistos.add(os);
-    const resto = cel.slice(iOs + 1);
-    // se o número veio sozinho numa coluna, o assunto é a coluna seguinte
-    let assunto = m[2];
-    if (!assunto && resto.length > 6) assunto = resto.shift();
-    const [status = '', solicitante = '', atendente = '', ultMod = '', abertura = '', ultAtend = ''] = resto;
-    const prioridade = (cel.slice(0, iOs).filter((c) => c && !/^\d+$/.test(c)).pop() || '').trim();
-    const limpo = (v) => (v === '-' ? '' : v);
-    const mq = maquinaDe(solicitante, assunto, celulaVTFE);
-    if (lixo({ status })) return;
-    out.push({
-      os, prioridade: prioridade || null, assunto: assunto.trim(), status: status || null,
-      solicitante: limpo(solicitante) || null, atendente: limpo(atendente) || null,
-      ultima_mod: dataSM(limpo(ultMod)), abertura: dataSM(limpo(abertura)), ultimo_atend: dataSM(limpo(ultAtend)),
-      maquina: mq.maquina, maquina_origem: mq.origem, celula: mq.celula || null, sistema: sistemaDe(assunto),
-    });
+    if (!bruto.some((c) => DT.test(c.trim()))) { const t = mapaTitulos(bruto); if (t) tit = t; return; }
+    const c = lerLinha(bruto, tit, celulaVTFE);
+    if (c && !vistos.has(c.os) && !lixo(c)) { vistos.add(c.os); out.push(c); }
   });
   return out;
+}
+
+// confere se a leitura faz sentido antes de gravar (evita gravar colunas trocadas)
+export function conferirLeitura(lista) {
+  if (!lista.length) return { ok: false, motivo: 'nenhum chamado encontrado' };
+  const n = lista.length, comSt = lista.filter((c) => STS.test(c.status || '')).length, comAb = lista.filter((c) => c.abertura).length;
+  const comSol = lista.filter((c) => c.solicitante && !PRI.test(c.solicitante) && !/sla/i.test(c.solicitante)).length;
+  const ok = comSt / n >= 0.8 && comAb / n >= 0.8 && comSol / n >= 0.8;
+  return { ok, motivo: ok ? '' : `status reconhecido em ${comSt} de ${n}, data de abertura em ${comAb}, solicitante em ${comSol}` };
 }
 
 // horas de máquina parada / reparo: da abertura ao último atendimento (fechada) ou até agora (aberta)
