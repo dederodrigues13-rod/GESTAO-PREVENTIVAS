@@ -156,6 +156,8 @@ export async function telaCorretivas(el, { gestao } = {}) {
         </section>
       </div>
 
+      ${rankingAtendentes(lista, { sub: 'Chamados atendidos no período (segue o filtro de setor) · máquinas que mais atendeu · tempo médio até fechar', limite: 10, comMaquina: true })}
+
       <section class="bloco"><div class="bloco-topo"><h2>Chamados</h2><p class="sub">${lista.length} no período${gestao ? ' · a máquina pode ser trocada quando a regra errar' : ''}</p></div>
         <div class="corr-tab-box"><table class="corr-tab corr-lista"><thead><tr><th>OM</th><th>Máquina</th><th>Assunto</th><th>Prioridade</th><th>Status</th><th>Abertura</th><th>Tempo</th></tr></thead><tbody>
         ${lista.slice(0, 300).map((o) => `<tr>
@@ -242,9 +244,6 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
     const sisL = Object.entries(sis).sort((a, b) => b[1].n - a[1].n || b[1].h - a[1].h), maxS = Math.max(1, ...sisL.map(([, v]) => v.n));
     const rep = {}; lista.forEach((o) => { const k = chaveAssunto(o.assunto); if (!k) return; const r = (rep[k] ??= { n: 0, ex: o.assunto, ult: o.abertura }); r.n++; });
     const repL = Object.values(rep).filter((r) => r.n > 1).sort((a, b) => b.n - a.n).slice(0, 10);
-    const atend = {}; lista.forEach((o) => { if (!o.atendente) return; const a = (atend[o.atendente] ??= { n: 0, hf: 0, nf: 0 }); a.n++; if (fechado(o)) { a.nf++; a.hf += horasParada(o); } });
-    const atendL = Object.entries(atend).sort((a, b) => b[1].n - a[1].n).slice(0, 8), maxA = Math.max(1, ...atendL.map(([, v]) => v.n)), totA = lista.filter((o) => o.atendente).length || 1;
-    const iniciais = (n) => n.split(/\s+/).filter((p) => p.length > 2 || /^[A-ZÁ-Ú]/.test(p)).filter((p) => !/^(dos|das|de|da|do)$/i.test(p)).map((p) => p[0]).slice(0, 1).concat(n.split(/\s+/).filter((p) => !/^(dos|das|de|da|do|júnior|junior|filho|neto)$/i.test(p)).slice(-1).map((p) => p[0])).join('').toUpperCase();
     // lista filtrada
     const q = chaveAssunto(st.busca);
     const filtrada = lista.filter((o) => (st.pri === 'todas' || (st.pri === 'pl' ? ehPL(o) : st.pri === 'cr' ? /cr[ií]tico/i.test(o.prioridade || '') : !ehPL(o) && !/cr[ií]tico/i.test(o.prioridade || ''))) && (!q || chaveAssunto(`${o.os} ${o.assunto} ${o.atendente}`).includes(q)));
@@ -278,13 +277,7 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
           ${repL.length ? `<ul class="corr-rep">${repL.map((r) => `<li><b>${r.n}×</b><span>${esc(r.ex)}<small>último em ${dataBR(diaDe(r.ult))}</small></span></li>`).join('')}</ul>` : '<p class="vazio-p">Nenhum assunto repetido.</p>'}
         </section>
       </div>
-      ${atendL.length ? `<section class="bloco"><div class="bloco-topo"><h2>Quem mais atendeu</h2><p class="sub">Chamados atendidos nesta máquina · tempo médio até fechar</p></div>
-        <ol class="atend-lista">${atendL.map(([n, v], i) => `<li title="${esc(n)}: ${v.n} chamados">
-          <span class="atend-pos">${i + 1}º</span><span class="atend-av" aria-hidden="true">${esc(iniciais(n))}</span>
-          <span class="atend-nome">${esc(n)}</span>
-          <span class="atend-barra"><i style="width:${v.n / maxA * 100}%"></i></span>
-          <b class="atend-n">${v.n}<small>${Math.round(v.n / totA * 100)}%</small></b>
-          <span class="atend-t">${v.nf ? hrs(v.hf / v.nf) : '–'}<small>médio</small></span></li>`).join('')}</ol></section>` : ''}
+      ${rankingAtendentes(lista, { sub: 'Chamados atendidos nesta máquina · tempo médio até fechar' })}
 
       <section class="bloco"><div class="bloco-topo"><h2>Todos os chamados</h2><p class="sub">${filtrada.length} de ${lista.length}</p></div>
         <div class="corr-busca"><input class="campo" type="search" data-busca placeholder="Buscar por assunto, número ou atendente" value="${esc(st.busca)}" aria-label="Buscar chamados">
@@ -310,4 +303,32 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
     }; });
   };
   desenhar();
+}
+
+// ---------- ranking "quem mais atendeu" (geral e por máquina) ----------
+const iniciais = (n) => {
+  const p = n.split(/\s+/).filter((x) => x && !/^(dos|das|de|da|do|e|júnior|junior|filho|neto)$/i.test(x));
+  return ((p[0]?.[0] || '') + (p.length > 1 ? p.at(-1)[0] : '')).toUpperCase();
+};
+function rankingAtendentes(lista, { sub, limite = 8, comMaquina = false } = {}) {
+  const atend = {};
+  lista.forEach((o) => {
+    if (!o.atendente) return;
+    const a = (atend[o.atendente] ??= { n: 0, hf: 0, nf: 0, maq: {} }); a.n++;
+    if (fechado(o)) { a.nf++; a.hf += horasParada(o); }
+    a.maq[o.maquina] = (a.maq[o.maquina] || 0) + 1;
+  });
+  const l = Object.entries(atend).sort((a, b) => b[1].n - a[1].n).slice(0, limite);
+  if (!l.length) return '';
+  const max = Math.max(1, ...l.map(([, v]) => v.n)), tot = lista.filter((o) => o.atendente).length || 1;
+  return `<section class="bloco"><div class="bloco-topo"><h2>Quem mais atendeu</h2><p class="sub">${sub}</p></div>
+    <ol class="atend-lista">${l.map(([n, v], i) => {
+      const top = Object.entries(v.maq).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([c, q]) => `${nomeMaq(c)} (${q})`).join(', ');
+      return `<li title="${esc(n)}: ${v.n} chamados">
+      <span class="atend-pos">${i + 1}º</span><span class="atend-av" aria-hidden="true">${esc(iniciais(n))}</span>
+      <span class="atend-nome">${esc(n)}${comMaquina ? `<small>mais em ${esc(top)}</small>` : ''}</span>
+      <span class="atend-barra"><i style="width:${v.n / max * 100}%"></i></span>
+      <b class="atend-n">${v.n}<small>${Math.round(v.n / tot * 100)}%</small></b>
+      <span class="atend-t">${v.nf ? hrs(v.hf / v.nf) : '–'}<small>médio</small></span></li>`;
+    }).join('')}</ol></section>`;
 }

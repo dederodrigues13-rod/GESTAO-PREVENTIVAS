@@ -901,3 +901,4 @@ body.claro .corr-pri-pl { color: #a8321a; } body.claro .corr-pri-cr { color: #8a
 .atend-n small, .atend-t small { display: block; font-family: var(--font); font-size: 11.5px; font-weight: 500; color: var(--muted); margin-top: 3px; }
 body.claro .atend-av { background: #eceef1; color: #3a424c; }
 @media (max-width: 760px) { .atend-lista li { grid-template-columns: 26px 34px minmax(0, 1fr) 54px; } .atend-barra, .atend-t { display: none; } .atend-av { width: 34px; height: 34px; } }
+.atend-nome small { display: block; font-weight: 400; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
