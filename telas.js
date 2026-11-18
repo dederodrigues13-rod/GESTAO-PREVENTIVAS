@@ -167,7 +167,7 @@ export function telaHistorico(el, slug) {
     const d90 = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10), rec = l.filter((c) => (c.abertura || '') >= d90);
     const hh = rec.reduce((s, c) => s + horasParada(c), 0);
     box.innerHTML = `<h2>Corretivas (portal SM)</h2>
-      <p class="sub">${rec.length} chamados nos últimos 90 dias · ${hh.toFixed(1).replace('.', ',')} h com chamado aberto · <a href="#corretivas">ver todas</a></p>
+      <p class="sub">${rec.length} chamados nos últimos 90 dias · ${hh.toFixed(1).replace('.', ',')} h com chamado aberto · <a href="#c-${m.slug}">ver todos os chamados desta máquina</a></p>
       ${l.length ? `<ul class="mini-acoes">${l.slice(0, 8).map((c) => `<li style="--c:${/parada/i.test(c.prioridade || '') ? 'var(--danger)' : '#f0a93b'}"><b>OM ${c.os} · ${esc(c.assunto)}</b><small>${dataHoraBR(c.abertura)} · ${esc(c.prioridade || '')} · ${fechado(c) ? `fechada em ${horasParada(c).toFixed(1).replace('.', ',')} h` : esc(c.status || 'aberta')}</small></li>`).join('')}</ul>` : '<p class="vazio-p">Nenhum chamado importado para esta máquina.</p>'}`;
   }).catch(() => { const box = el.querySelector('[data-corr-hist]'); if (box) box.remove(); });
 }

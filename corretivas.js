@@ -17,6 +17,9 @@ const JANELA = 90;                // dias antes/depois da preventiva para compar
 const LOGO_DEPOIS = 15;           // quebra até 15 dias depois da preventiva = alerta
 const PERIODOS = [['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['mes', 'Este mês'], ['ano', 'Este ano'], ['tudo', 'Tudo']];
 const nomeMaq = (c) => (c === FORNOS_GERAL ? 'Fornos (geral)' : c === SEM_MAQUINA ? 'Sem máquina' : c);
+// endereço da página de corretivas de cada máquina: #c-vtia-05, #c-fornos, #c-sem
+export const slugMaq = (c) => (c === FORNOS_GERAL ? 'fornos' : c === SEM_MAQUINA ? 'sem' : porCodigo[c]?.slug || String(c).toLowerCase().replace(/\s+/g, '-'));
+const maqDoSlug = (sl) => (sl === 'fornos' ? FORNOS_GERAL : sl === 'sem' ? SEM_MAQUINA : MAQUINAS.find((m) => m.slug === sl)?.codigo);
 const hrs = (h) => (h >= 48 ? `${(h / 24).toFixed(1).replace('.', ',')} d` : `${h.toFixed(1).replace('.', ',')} h`);
 const diaDe = (ts) => (ts ? ts.slice(0, 10) : '');
 const somaDiasIso = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -84,7 +87,7 @@ export async function telaCorretivas(el, { gestao } = {}) {
   let todas;
   try { await importarPendente(); todas = await corretivas(); }
   catch (e) { el.innerHTML = `<div class="pag"><p class="aviso aviso-red">${ic('alert')}<span>Não foi possível carregar as corretivas: ${esc(e?.message || e)}</span></p></div>`; return; }
-  const st = { per: sessionStorage.getItem('prev-corr-per') || '90', setor: 'todos' };
+  const st = { per: sessionStorage.getItem('prev-corr-per') || '90', setor: 'todos', ord: 'os' };
   const desenhar = () => {
     const h = hoje(), agora = Date.now();
     const ini = st.per === '30' ? somaDiasIso(h, -30) : st.per === '90' ? somaDiasIso(h, -90) : st.per === 'mes' ? h.slice(0, 8) + '01' : st.per === 'ano' ? h.slice(0, 5) + '01-01' : '0000';
@@ -102,7 +105,7 @@ export async function telaCorretivas(el, { gestao } = {}) {
       const os = lista.filter((o) => o.maquina === c), hh = os.reduce((s, o) => s + horasParada(o, agora), 0);
       const ult = (prev[c] || []).at(-1), ad = antesDepois([c], todas, prev);
       return { c, os: os.length, hh, ult, ad, pl: os.filter((o) => /parada/i.test(o.prioridade || '')).length };
-    }).filter((x) => x.os || x.ult).sort((a, b) => b.hh - a.hh || b.os - a.os);
+    }).filter((x) => x.os || x.ult).sort((a, b) => (st.ord === 'hh' ? b.hh - a.hh : st.ord === 'pl' ? b.pl - a.pl : 0) || b.os - a.os || b.hh - a.hh);
     const maxH = Math.max(1, ...linhas.map((x) => x.hh));
     // quebras logo depois da preventiva
     const alertas = [];
@@ -133,10 +136,10 @@ export async function telaCorretivas(el, { gestao } = {}) {
 
       <section class="bloco"><div class="bloco-topo"><h2>Preventiva × corretiva por máquina</h2>
         <p class="sub">Compara os chamados ${JANELA} dias antes e ${JANELA} dias depois de cada preventiva feita. ${total.n ? `No total: <b>${total.antes}</b> antes → <b>${total.depois}</b> depois.` : 'Aparece quando a primeira preventiva completar ' + JANELA + ' dias.'}</p></div>
-        <div class="corr-tab-box"><table class="corr-tab"><thead><tr><th>Máquina</th><th>Chamados</th><th>Tempo em chamado</th><th>Parada de linha</th><th>Última preventiva</th><th>Antes → depois</th></tr></thead><tbody>
+        <div class="corr-tab-box"><table class="corr-tab"><thead><tr><th>Máquina</th>${[['os', 'Chamados'], ['hh', 'Tempo em chamado'], ['pl', 'Parada de linha']].map(([k, n]) => `<th aria-sort="${st.ord === k ? 'descending' : 'none'}"><button type="button" class="th-ord ${st.ord === k ? 'on' : ''}" data-ord="${k}" title="Ordenar por ${n.toLowerCase()} (maior primeiro)">${n}${st.ord === k ? ' ▼' : ''}</button></th>`).join('')}<th>Última preventiva</th><th>Antes → depois</th></tr></thead><tbody>
         ${linhas.map((x) => {
           const v = x.ad.n ? (x.ad.depois < x.ad.antes ? 'melhor' : x.ad.depois > x.ad.antes ? 'pior' : 'igual') : '';
-          return `<tr><th scope="row">${porCodigo[x.c] ? `<a href="#h-${porCodigo[x.c].slug}">${esc(x.c)}</a>` : esc(nomeMaq(x.c))}<small>${esc(porCodigo[x.c]?.modelo || (x.c === SEM_MAQUINA ? 'aberto por pessoa, sem máquina no assunto' : 'forno sem código no SM'))}</small></th>
+          return `<tr><th scope="row"><a href="#c-${slugMaq(x.c)}">${esc(nomeMaq(x.c))}</a><small>${esc(porCodigo[x.c]?.modelo || (x.c === SEM_MAQUINA ? 'aberto por pessoa, sem máquina no assunto' : 'forno sem código no SM'))}</small></th>
             <td>${x.os}</td><td><div class="corr-barra"><i style="width:${x.hh / maxH * 100}%"></i><span>${hrs(x.hh)}</span></div></td><td>${x.pl || '–'}</td>
             <td>${x.ult ? dataBR(x.ult) : '<span class="muted">ainda não</span>'}</td>
             <td>${x.ad.n ? `<span class="corr-ad corr-${v}">${x.ad.antes} → ${x.ad.depois} ${v === 'melhor' ? '▼' : v === 'pior' ? '▲' : '='}</span>` : '<span class="muted">aguardando dados</span>'}</td></tr>`;
@@ -167,6 +170,7 @@ export async function telaCorretivas(el, { gestao } = {}) {
     contarNumeros(el);
     el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; try { sessionStorage.setItem('prev-corr-per', st.per); } catch (e) { /* ok */ } desenhar(); }; });
     el.querySelectorAll('[data-setor]').forEach((b) => { b.onclick = () => { st.setor = b.dataset.setor; desenhar(); }; });
+    el.querySelectorAll('[data-ord]').forEach((b) => { b.onclick = () => { st.ord = b.dataset.ord; desenhar(); }; });
     el.querySelectorAll('[data-maq]').forEach((s) => { s.onchange = async () => {
       const os = +s.dataset.maq, o = todas.find((x) => x.os === os), val = s.value === o.maquina_auto ? null : s.value;
       try { await definirMaquinaCorretiva(os, val); todas = await corretivas(); toast(`OM ${os} agora é da ${nomeMaq(s.value)}.`); desenhar(); } catch (e) { toast('Não foi possível trocar: ' + (e?.message || e), 'erro'); }
@@ -202,4 +206,101 @@ function abrirImportar(depois) {
 // chamados de uma máquina (para o histórico da máquina)
 export async function corretivasDaMaquina(codigo) {
   return (await corretivas()).filter((c) => c.maquina === codigo).sort((a, b) => String(b.abertura).localeCompare(String(a.abertura)));
+}
+
+// ---------- página de corretivas de uma máquina (#c-vtia-05) ----------
+const MES_C = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const chaveAssunto = (a) => String(a || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(maq|maquina|na|no|da|do|de|com|em|a|o|e)\b/g, ' ').replace(/\s+/g, ' ').trim();
+export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
+  const cod = maqDoSlug(slug);
+  if (!cod) { el.innerHTML = `<div class="pag"><p class="aviso aviso-red">${ic('alert')}<span>Máquina não encontrada.</span></p></div>`; return; }
+  el.innerHTML = esqueleto('Carregando chamados da máquina');
+  let todas; try { todas = await corretivas(); } catch (e) { el.innerHTML = `<div class="pag"><p class="aviso aviso-red">${ic('alert')}<span>${esc(e?.message || e)}</span></p></div>`; return; }
+  const m = porCodigo[cod];
+  const st = { per: 'tudo', pri: 'todas', busca: '', mostrar: 60 };
+  const desenhar = () => {
+    const h = hoje(), agora = Date.now();
+    const ini = st.per === '30' ? somaDiasIso(h, -30) : st.per === '90' ? somaDiasIso(h, -90) : st.per === 'mes' ? h.slice(0, 8) + '01' : st.per === 'ano' ? h.slice(0, 5) + '01-01' : '0000';
+    const daMaq = todas.filter((c) => c.maquina === cod).sort((a, b) => String(b.abertura).localeCompare(String(a.abertura)));
+    const lista = daMaq.filter((c) => diaDe(c.abertura) >= ini);
+    const horas = lista.reduce((s, c) => s + horasParada(c, agora), 0);
+    const fech = lista.filter(fechado), mttr = fech.length ? fech.reduce((s, c) => s + horasParada(c), 0) / fech.length : 0;
+    const ehPL = (c) => /parada/i.test(c.prioridade || '');
+    // evolução mês a mês (do primeiro chamado do período até este mês)
+    const meses = [];
+    const comData = lista.filter((c) => c.abertura);
+    if (comData.length) {
+      const prim = comData.map((c) => diaDe(c.abertura)).sort()[0];
+      let a = +prim.slice(0, 4), mm = +prim.slice(5, 7); const af = +h.slice(0, 4), mf = +h.slice(5, 7);
+      while (a < af || (a === af && mm <= mf)) { const k = `${a}-${String(mm).padStart(2, '0')}`; const l = comData.filter((c) => diaDe(c.abertura).startsWith(k));
+        meses.push({ k, rot: MES_C[mm - 1] + (mm === 1 || !meses.length ? `/${String(a).slice(2)}` : ''), n: l.length, pl: l.filter(ehPL).length, h: l.reduce((s, c) => s + horasParada(c, agora), 0) }); mm++; if (mm > 12) { mm = 1; a++; } }
+    }
+    const maxM = Math.max(1, ...meses.map((x) => x.n));
+    const media = meses.length ? lista.length / meses.length : 0;
+    // maiores problemas: por sistema e pelos assuntos que mais se repetem
+    const sis = {}; lista.forEach((o) => { const s2 = (sis[o.sistema] ??= { n: 0, h: 0, pl: 0 }); s2.n++; s2.h += horasParada(o, agora); if (ehPL(o)) s2.pl++; });
+    const sisL = Object.entries(sis).sort((a, b) => b[1].n - a[1].n || b[1].h - a[1].h), maxS = Math.max(1, ...sisL.map(([, v]) => v.n));
+    const rep = {}; lista.forEach((o) => { const k = chaveAssunto(o.assunto); if (!k) return; const r = (rep[k] ??= { n: 0, ex: o.assunto, ult: o.abertura }); r.n++; });
+    const repL = Object.values(rep).filter((r) => r.n > 1).sort((a, b) => b.n - a.n).slice(0, 10);
+    const atend = {}; lista.forEach((o) => { if (o.atendente) atend[o.atendente] = (atend[o.atendente] || 0) + 1; });
+    const atendL = Object.entries(atend).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    // lista filtrada
+    const q = chaveAssunto(st.busca);
+    const filtrada = lista.filter((o) => (st.pri === 'todas' || (st.pri === 'pl' ? ehPL(o) : st.pri === 'cr' ? /cr[ií]tico/i.test(o.prioridade || '') : !ehPL(o) && !/cr[ií]tico/i.test(o.prioridade || ''))) && (!q || chaveAssunto(`${o.os} ${o.assunto} ${o.atendente}`).includes(q)));
+    el.innerHTML = `<div class="pag">
+      <div class="pag-topo pag-topo-acao"><div><a class="link" href="#corretivas">‹ Corretivas</a>
+        <h1 class="tit">${esc(nomeMaq(cod))} · corretivas</h1><p class="sub">${m ? `${esc(m.equipamento)} · ${esc(m.modelo)} · ${esc(SETORES[m.setor].nome)}` : cod === FORNOS_GERAL ? 'Chamados dos fornos sem forno identificado no assunto' : 'Chamados abertos por pessoas, sem máquina no assunto'} · ${daMaq.length} chamados no total</p></div>
+        ${m ? `<a class="btn btn-sec" href="#h-${m.slug}">${ic('historico')} Preventivas desta máquina</a>` : ''}</div>
+      <div class="corr-filtros"><div class="ma-abas">${PERIODOS.map(([k, n]) => `<button type="button" class="chip ${st.per === k ? 'on' : ''}" data-per="${k}">${n}</button>`).join('')}</div></div>
+      <div class="ind-hero corr-kpis">
+        <div class="kpi"><b data-contar>${lista.length}</b><span>chamados${st.per === 'tudo' ? '' : ' no período'}</span></div>
+        <div class="kpi" style="--c:var(--yellow)"><b data-contar>${lista.filter(ehPL).length}</b><span>parada de linha</span></div>
+        <div class="kpi" style="--c:var(--danger)"><b>${hrs(horas)}</b><span>com chamado aberto</span></div>
+        <div class="kpi" style="--c:#5aa2ff"><b>${hrs(mttr)}</b><span>tempo médio até fechar</span></div>
+        <div class="kpi" style="--c:#f0a93b"><b>${media.toFixed(1).replace('.', ',')}</b><span>chamados por mês (média)</span></div>
+      </div>
+
+      <section class="bloco"><div class="bloco-topo"><h2>Chamados mês a mês</h2>
+        <div class="sem-leg"><span><i class="lg-atr"></i>Parada de linha</span><span><i style="background:#69727c"></i>Outros</span><span class="muted">linha tracejada = média</span></div></div>
+        ${meses.length ? `<div class="cm-scroll"><div class="cm-graf" style="--n:${meses.length}">
+          <div class="cm-area"><div class="cm-media" style="bottom:${media / maxM * 100}%"></div></div>
+          ${meses.map((x) => `<div class="cm-col" title="${x.rot}: ${x.n} chamados (${x.pl} parada de linha) · ${hrs(x.h)}"><b>${x.n || ''}</b>
+            <div class="cm-barra" style="height:${x.n / maxM * 100}%"><i style="flex:${x.n - x.pl}"></i><i class="cm-pl" style="flex:${x.pl}"></i></div><span>${x.rot}</span></div>`).join('')}
+        </div></div>` : '<p class="vazio-p">Sem chamados no período.</p>'}
+      </section>
+
+      <div class="col2 col2-igual">
+        <section class="bloco"><div class="bloco-topo"><h2>Maiores problemas</h2><p class="sub">Por sistema, pelo assunto: vezes · tempo em chamado</p></div>
+          ${sisL.length ? `<div class="barras corr-sis">${sisL.map(([n, v]) => `<div class="barra-lin" title="${esc(n)}: ${v.n} chamados, ${v.pl} parada de linha"><span>${esc(n)}</span><div class="barra barra-red"><i style="width:${v.n / maxS * 100}%"></i></div><b>${v.n}× · ${hrs(v.h)}</b></div>`).join('')}</div>` : '<p class="vazio-p">Sem chamados.</p>'}
+        </section>
+        <section class="bloco"><div class="bloco-topo"><h2>Problemas que se repetem</h2><p class="sub">Mesmo assunto aberto mais de uma vez</p></div>
+          ${repL.length ? `<ul class="corr-rep">${repL.map((r) => `<li><b>${r.n}×</b><span>${esc(r.ex)}<small>último em ${dataBR(diaDe(r.ult))}</small></span></li>`).join('')}</ul>` : '<p class="vazio-p">Nenhum assunto repetido.</p>'}
+          ${atendL.length ? `<h3 class="corr-h3">Quem mais atendeu</h3><p class="sub">${atendL.map(([n, c]) => `${esc(n)} (${c})`).join(' · ')}</p>` : ''}
+        </section>
+      </div>
+
+      <section class="bloco"><div class="bloco-topo"><h2>Todos os chamados</h2><p class="sub">${filtrada.length} de ${lista.length}</p></div>
+        <div class="corr-busca"><input class="campo" type="search" data-busca placeholder="Buscar por assunto, número ou atendente" value="${esc(st.busca)}" aria-label="Buscar chamados">
+          <div class="ma-abas">${[['todas', 'Todas'], ['pl', 'Parada de linha'], ['cr', 'Crítico'], ['ou', 'Outras']].map(([k, n]) => `<button type="button" class="chip ${st.pri === k ? 'on' : ''}" data-pri="${k}">${n}</button>`).join('')}</div></div>
+        <div class="corr-tab-box"><table class="corr-tab corr-lista"><thead><tr><th>OM</th><th>Assunto</th><th>Prioridade</th><th>Status</th><th>Abertura</th><th>Fechamento</th><th>Tempo</th>${gestao ? '<th>Máquina</th>' : ''}</tr></thead><tbody>
+          ${filtrada.slice(0, st.mostrar).map((o) => `<tr><td class="corr-os">${o.os}</td><td>${esc(o.assunto)}<small class="muted">${esc(o.sistema || '')} · ${esc(o.atendente || 'sem atendente')}</small></td>
+            <td><span class="corr-pri corr-pri-${ehPL(o) ? 'pl' : /cr[ií]tico/i.test(o.prioridade || '') ? 'cr' : 'nm'}">${esc(o.prioridade || '–')}</span></td><td>${esc(o.status || '')}</td>
+            <td>${dataHoraBR(o.abertura)}</td><td>${fechado(o) ? dataHoraBR(o.ultimo_atend || o.ultima_mod) : '<span class="muted">em aberto</span>'}</td><td>${hrs(horasParada(o, agora))}</td>
+            ${gestao ? `<td><select class="campo campo-sm" data-maq="${o.os}" aria-label="Máquina da OM ${o.os}">${[SEM_MAQUINA, FORNOS_GERAL, ...MAQUINAS.map((x) => x.codigo)].map((c) => `<option value="${c}" ${c === o.maquina ? 'selected' : ''}>${esc(nomeMaq(c))}</option>`).join('')}</select></td>` : ''}</tr>`).join('') || `<tr><td colspan="${gestao ? 8 : 7}" class="muted">Nenhum chamado.</td></tr>`}
+        </tbody></table></div>
+        ${filtrada.length > st.mostrar ? `<p class="centro"><button type="button" class="btn btn-sec" data-mais>Mostrar mais ${Math.min(100, filtrada.length - st.mostrar)}</button></p>` : ''}
+      </section>
+    </div>`;
+    contarNumeros(el);
+    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; desenhar(); }; });
+    el.querySelectorAll('[data-pri]').forEach((b) => { b.onclick = () => { st.pri = b.dataset.pri; desenhar(); }; });
+    const bus = el.querySelector('[data-busca]'); let t;
+    bus.oninput = () => { clearTimeout(t); t = setTimeout(() => { st.busca = bus.value; const pos = bus.selectionStart; desenhar(); const b2 = el.querySelector('[data-busca]'); b2.focus(); b2.setSelectionRange(pos, pos); }, 250); };
+    const mais = el.querySelector('[data-mais]'); if (mais) mais.onclick = () => { st.mostrar += 100; desenhar(); };
+    el.querySelectorAll('[data-maq]').forEach((sel) => { sel.onchange = async () => {
+      const os = +sel.dataset.maq, o = todas.find((x) => x.os === os), val = sel.value === o.maquina_auto ? null : sel.value;
+      try { await definirMaquinaCorretiva(os, val); todas = await corretivas(); toast(`OM ${os} agora é da ${nomeMaq(sel.value)}.`); desenhar(); } catch (e) { toast('Não foi possível trocar: ' + (e?.message || e), 'erro'); }
+    }; });
+  };
+  desenhar();
 }

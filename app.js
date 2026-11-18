@@ -19,7 +19,7 @@ import { telaFormulario, telaEnviado, telaRelatorio, confirmarExclusao } from '.
 import { telaAcoes, telaHistorico, telaIndicadores, telaAvisos, telaVerificacao, stAcao } from './telas.js';
 import { acoes } from './store.js';
 import { telaTV, sairTV } from './tv.js';
-import { telaCorretivas, ouvirFavorito } from './corretivas.js';
+import { telaCorretivas, telaCorretivasMaquina, ouvirFavorito } from './corretivas.js';
 
 const URL_APP = location.origin + '/';
 const app = document.getElementById('app');
@@ -47,8 +47,9 @@ const dataExtenso = () => { const t = new Date().toLocaleDateString('pt-BR', { w
 // Mesmo layout do Gestão de Fluidos: menu lateral (recolhido em ícones, abre ao passar o
 // cursor, ou fixo — lembrado no aparelho) e cabeçalho com o banner da Vetore.
 function casca(rota) {
-  const base = rota.startsWith('layout') ? 'layout' : rota.startsWith('cal') || rota === 'ano' ? 'calendario' : rota;
-  const titulo = rota.startsWith('m-') ? 'Formulário' : rota.startsWith('r-') ? 'Relatório' : rota.startsWith('h-') ? 'Histórico' : TITULOS[base] || 'Painel';
+  const base = rota.startsWith('layout') ? 'layout' : rota.startsWith('cal') || rota === 'ano' ? 'calendario' : rota.startsWith('c-') ? 'corretivas' : rota;
+  const maqC = rota.startsWith('c-') ? (rota === 'c-fornos' ? 'Fornos' : rota === 'c-sem' ? 'Sem máquina' : porSlug[rota.slice(2)]?.codigo || '') : '';
+  const titulo = rota.startsWith('m-') ? 'Formulário' : rota.startsWith('r-') ? 'Relatório' : rota.startsWith('h-') ? 'Histórico' : maqC ? `Corretivas · ${maqC}` : TITULOS[base] || 'Painel';
   const pend = registros().filter((r) => r.status === minhaEtapa()).length;
   const venc = acoes().filter((a) => stAcao(a) === 'vencida').length;
   const links = ABAS.filter((x) => !x[3] || gestao()).map(([h, n, i]) => `<a href="#${h}" class="${base === h ? 'active' : ''}" title="${n}">${ic(i)}<span>${n}</span>${h === 'registros' && pend ? `<b class="badge">${pend}</b>` : ''}${h === 'acoes' && venc ? `<b class="badge badge-red">${venc}</b>` : ''}</a>`).join('');
@@ -482,6 +483,7 @@ function rotear() {
   if (rota === 'tv') { telaTV(app); return; }
   sairTV();
   if (rota === 'corretivas') { telaCorretivas(casca(rota), { gestao: gestao() }); return; }
+  if (rota.startsWith('c-')) { telaCorretivasMaquina(casca(rota), rota.slice(2), { gestao: gestao() }); return; }
   if (rota.startsWith('m-')) {
     const m = porSlug[rota.slice(2)];
     const el = casca(rota);
@@ -544,7 +546,7 @@ window.addEventListener('hashchange', () => { if (rodando) rotear(); });
 // chamados mandados pelo botão de favorito do SM: guarda e abre a tela de Corretivas
 ouvirFavorito(() => { if (location.hash !== '#corretivas') location.hash = 'corretivas'; else if (rodando) rotear(); });
 // telas com campos para digitar não são redesenhadas sozinhas (não perde o que está sendo digitado)
-aoMudar(() => { if (rodando && !/^#(m-|r-|layout|avisos|feriados|corretivas)/.test(location.hash)) { const y = scrollY; rotear(); requestAnimationFrame(() => scrollTo(0, y)); } });
+aoMudar(() => { if (rodando && !/^#(m-|r-|c-|layout|avisos|feriados|corretivas)/.test(location.hash)) { const y = scrollY; rotear(); requestAnimationFrame(() => scrollTo(0, y)); } });
 aoErro((m) => toast('Não foi gravado: ' + m, 'erro'));
 // atualiza sozinho: ao voltar para a aba e a cada 2 minutos (assinaturas feitas em outro celular)
 const atualizar = () => { if (rodando && document.visibilityState === 'visible') carregar().catch(() => {}); };
