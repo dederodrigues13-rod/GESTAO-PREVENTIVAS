@@ -87,7 +87,7 @@ export async function telaCorretivas(el, { gestao } = {}) {
   let todas;
   try { await importarPendente(); todas = await corretivas(); }
   catch (e) { el.innerHTML = `<div class="pag"><p class="aviso aviso-red">${ic('alert')}<span>Não foi possível carregar as corretivas: ${esc(e?.message || e)}</span></p></div>`; return; }
-  const st = { per: sessionStorage.getItem('prev-corr-per') || '90', setor: 'todos', ord: 'os' };
+  const st = { per: sessionStorage.getItem('prev-corr-per') || '90', setor: 'todos', ord: 'os', mes: null };
   const desenhar = () => {
     const h = hoje(), agora = Date.now();
     const ini = st.per === '30' ? somaDiasIso(h, -30) : st.per === '90' ? somaDiasIso(h, -90) : st.per === 'mes' ? h.slice(0, 8) + '01' : st.per === 'ano' ? h.slice(0, 5) + '01-01' : '0000';
@@ -134,6 +134,10 @@ export async function telaCorretivas(el, { gestao } = {}) {
         <div class="kpi" style="--c:#f0a93b"><b data-contar>${abertas.length}</b><span>abertos agora no SM</span></div>
       </div>
 
+      ${(() => { const ms = mesesDe(lista, h, agora), md = ms.length ? lista.filter((o) => o.abertura).length / ms.length : 0; return ms.length > 1 ? `<section class="bloco"><div class="bloco-topo"><h2>Chamados mês a mês</h2>
+        <div class="sem-leg"><span><i class="lg-atr"></i>Parada de linha</span><span><i class="lg-outros"></i>Outros</span><span><i class="lg-media"></i>Média ${md.toFixed(1).replace('.', ',')}/mês</span><span class="muted">Clique num mês para ver os chamados</span></div></div>
+        ${graficoMeses(ms, md, st.mes)}${st.mes ? painelMes(st.mes, lista, ms, agora, true) : ''}</section>` : ''; })()}
+
       <section class="bloco"><div class="bloco-topo"><h2>Preventiva × corretiva por máquina</h2>
         <p class="sub">Compara os chamados ${JANELA} dias antes e ${JANELA} dias depois de cada preventiva feita. ${total.n ? `No total: <b>${total.antes}</b> antes → <b>${total.depois}</b> depois.` : 'Aparece quando a primeira preventiva completar ' + JANELA + ' dias.'}</p></div>
         <div class="corr-tab-box"><table class="corr-tab"><thead><tr><th>Máquina</th>${[['os', 'Chamados'], ['hh', 'Tempo em chamado'], ['pl', 'Parada de linha']].map(([k, n]) => `<th aria-sort="${st.ord === k ? 'descending' : 'none'}"><button type="button" class="th-ord ${st.ord === k ? 'on' : ''}" data-ord="${k}" title="Ordenar por ${n.toLowerCase()} (maior primeiro)">${n}${st.ord === k ? ' ▼' : ''}</button></th>`).join('')}<th>Última preventiva</th><th>Antes → depois</th></tr></thead><tbody>
@@ -170,8 +174,9 @@ export async function telaCorretivas(el, { gestao } = {}) {
       </section>
     </div>`;
     contarNumeros(el);
-    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; try { sessionStorage.setItem('prev-corr-per', st.per); } catch (e) { /* ok */ } desenhar(); }; });
+    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; st.mes = null; try { sessionStorage.setItem('prev-corr-per', st.per); } catch (e) { /* ok */ } desenhar(); }; });
     el.querySelectorAll('[data-setor]').forEach((b) => { b.onclick = () => { st.setor = b.dataset.setor; desenhar(); }; });
+    ligarMeses(el, st, desenhar);
     el.querySelectorAll('[data-ord]').forEach((b) => { b.onclick = () => { st.ord = b.dataset.ord; desenhar(); }; });
     el.querySelectorAll('[data-maq]').forEach((s) => { s.onchange = async () => {
       const os = +s.dataset.maq, o = todas.find((x) => x.os === os), val = s.value === o.maquina_auto ? null : s.value;
@@ -219,7 +224,7 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
   el.innerHTML = esqueleto('Carregando chamados da máquina');
   let todas; try { todas = await corretivas(); } catch (e) { el.innerHTML = `<div class="pag"><p class="aviso aviso-red">${ic('alert')}<span>${esc(e?.message || e)}</span></p></div>`; return; }
   const m = porCodigo[cod];
-  const st = { per: 'tudo', pri: 'todas', busca: '', mostrar: 60 };
+  const st = { per: 'tudo', pri: 'todas', busca: '', mostrar: 60, mes: null };
   const desenhar = () => {
     const h = hoje(), agora = Date.now();
     const ini = st.per === '30' ? somaDiasIso(h, -30) : st.per === '90' ? somaDiasIso(h, -90) : st.per === 'mes' ? h.slice(0, 8) + '01' : st.per === 'ano' ? h.slice(0, 5) + '01-01' : '0000';
@@ -229,14 +234,7 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
     const fech = lista.filter(fechado), mttr = fech.length ? fech.reduce((s, c) => s + horasParada(c), 0) / fech.length : 0;
     const ehPL = (c) => /parada/i.test(c.prioridade || '');
     // evolução mês a mês (do primeiro chamado do período até este mês)
-    const meses = [];
-    const comData = lista.filter((c) => c.abertura);
-    if (comData.length) {
-      const prim = comData.map((c) => diaDe(c.abertura)).sort()[0];
-      let a = +prim.slice(0, 4), mm = +prim.slice(5, 7); const af = +h.slice(0, 4), mf = +h.slice(5, 7);
-      while (a < af || (a === af && mm <= mf)) { const k = `${a}-${String(mm).padStart(2, '0')}`; const l = comData.filter((c) => diaDe(c.abertura).startsWith(k));
-        meses.push({ k, rot: MES_C[mm - 1] + (mm === 1 || !meses.length ? `/${String(a).slice(2)}` : ''), n: l.length, pl: l.filter(ehPL).length, h: l.reduce((s, c) => s + horasParada(c, agora), 0) }); mm++; if (mm > 12) { mm = 1; a++; } }
-    }
+    const meses = mesesDe(lista, h, agora);
     const maxM = Math.max(1, ...meses.map((x) => x.n));
     const media = meses.length ? lista.length / meses.length : 0;
     // maiores problemas: por sistema e pelos assuntos que mais se repetem
@@ -261,12 +259,9 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
       </div>
 
       <section class="bloco"><div class="bloco-topo"><h2>Chamados mês a mês</h2>
-        <div class="sem-leg"><span><i class="lg-atr"></i>Parada de linha</span><span><i style="background:#69727c"></i>Outros</span><span class="muted">linha tracejada = média</span></div></div>
-        ${meses.length ? `<div class="cm-scroll"><div class="cm-graf" style="--n:${meses.length}">
-          <div class="cm-area"><div class="cm-media" style="bottom:${media / maxM * 100}%"></div></div>
-          ${meses.map((x) => `<div class="cm-col" title="${x.rot}: ${x.n} chamados (${x.pl} parada de linha) · ${hrs(x.h)}"><b>${x.n || ''}</b>
-            <div class="cm-barra" style="height:${x.n / maxM * 100}%"><i style="flex:${x.n - x.pl}"></i><i class="cm-pl" style="flex:${x.pl}"></i></div><span>${x.rot}</span></div>`).join('')}
-        </div></div>` : '<p class="vazio-p">Sem chamados no período.</p>'}
+        <div class="sem-leg"><span><i class="lg-atr"></i>Parada de linha</span><span><i class="lg-outros"></i>Outros</span><span><i class="lg-media"></i>Média ${media.toFixed(1).replace('.', ',')}/mês</span><span class="muted">Clique num mês para ver os chamados</span></div></div>
+        ${meses.length ? graficoMeses(meses, media, st.mes) : '<p class="vazio-p">Sem chamados no período.</p>'}
+        ${st.mes ? painelMes(st.mes, lista, meses, agora) : ''}
       </section>
 
       <div class="col2 col2-igual">
@@ -292,8 +287,9 @@ export async function telaCorretivasMaquina(el, slug, { gestao } = {}) {
       </section>
     </div>`;
     contarNumeros(el);
-    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; desenhar(); }; });
+    el.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { st.per = b.dataset.per; st.mes = null; desenhar(); }; });
     el.querySelectorAll('[data-pri]').forEach((b) => { b.onclick = () => { st.pri = b.dataset.pri; desenhar(); }; });
+    ligarMeses(el, st, desenhar);
     const bus = el.querySelector('[data-busca]'); let t;
     bus.oninput = () => { clearTimeout(t); t = setTimeout(() => { st.busca = bus.value; const pos = bus.selectionStart; desenhar(); const b2 = el.querySelector('[data-busca]'); b2.focus(); b2.setSelectionRange(pos, pos); }, 250); };
     const mais = el.querySelector('[data-mais]'); if (mais) mais.onclick = () => { st.mostrar += 100; desenhar(); };
@@ -331,4 +327,72 @@ function rankingAtendentes(lista, { sub, limite = 8, comMaquina = false } = {}) 
       <b class="atend-n">${v.n}<small>${Math.round(v.n / tot * 100)}%</small></b>
       <span class="atend-t">${v.nf ? hrs(v.hf / v.nf) : '–'}<small>médio</small></span></li>`;
     }).join('')}</ol></section>`;
+}
+
+// ---------- gráfico mês a mês (barras finas, grade discreta, média, dica ao passar o mouse, clique abre o mês) ----------
+const MES_LONGO = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const nomeMes = (k) => { const t = `${MES_LONGO[+k.slice(5) - 1]} de ${k.slice(0, 4)}`; return t[0].toUpperCase() + t.slice(1); };
+function escalaBonita(max) {
+  const bruto = max / 4, mag = 10 ** Math.floor(Math.log10(Math.max(1, bruto))), passo = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((p) => p >= bruto) || mag * 10;
+  return { passo, topo: Math.max(passo, Math.ceil(max / passo) * passo) };
+}
+function graficoMeses(meses, media, sel) {
+  const max = Math.max(1, ...meses.map((x) => x.n)), { passo, topo } = escalaBonita(max);
+  const ticks = []; for (let v = 0; v <= topo; v += passo) ticks.push(v);
+  const iMax = meses.findIndex((x) => x.n === max), ult = meses.length - 1;
+  return `<div class="cm2 ${sel ? 'tem-sel' : ''}" style="--n:${meses.length}">
+    <div class="cm2-eixo" aria-hidden="true">${ticks.slice().reverse().map((v) => `<span style="bottom:${v / topo * 100}%">${v}</span>`).join('')}</div>
+    <div class="cm2-rolar"><div class="cm2-plot">
+      ${ticks.map((v) => `<i class="cm2-grade" style="bottom:${v / topo * 100}%"></i>`).join('')}
+      <i class="cm2-media" style="bottom:${media / topo * 100}%"></i>
+      ${meses.map((x, i) => {
+        const pct = (x.n / topo) * 100, rot = i === iMax || i === ult || x.k === sel;
+        return `<button type="button" class="cm2-col ${x.k === sel ? 'sel' : ''}" data-mes="${x.k}" aria-pressed="${x.k === sel}" aria-label="${nomeMes(x.k)}: ${x.n} chamados, ${x.pl} parada de linha">
+          <span class="cm2-barra" style="height:${pct}%">${rot && x.n ? `<b class="cm2-val">${x.n}</b>` : ''}${x.n - x.pl ? `<i class="cm2-o" style="flex:${x.n - x.pl}"></i>` : ''}${x.pl ? `<i class="cm2-pl" style="flex:${x.pl}"></i>` : ''}</span>
+          <span class="cm2-x">${x.rot}</span>
+          <span class="cm2-dica" role="presentation"><b>${nomeMes(x.k)}</b><span><i class="lg-outros"></i>${x.n} chamados</span><span><i class="lg-atr"></i>${x.pl} parada de linha</span><span class="muted">${hrs(x.h)} em chamado</span></span>
+        </button>`;
+      }).join('')}
+    </div></div>
+  </div>`;
+}
+function painelMes(k, lista, meses, agora, comMaquina = false) {
+  const doMes = lista.filter((o) => diaDe(o.abertura).startsWith(k)).sort((a, b) => String(a.abertura).localeCompare(String(b.abertura)));
+  const m = meses.find((x) => x.k === k) || { n: 0, pl: 0, h: 0 };
+  const sis = {}; doMes.forEach((o) => { sis[o.sistema] = (sis[o.sistema] || 0) + 1; });
+  const top = Object.entries(sis).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const pl = (o) => /parada/i.test(o.prioridade || '');
+  return `<div class="cm-painel" role="region" aria-label="Chamados de ${nomeMes(k)}">
+    <div class="cm-painel-topo"><div><span class="eyebrow">Mês selecionado</span><h3>${nomeMes(k)}</h3>
+      <p class="sub">${m.n} chamados · ${m.pl} parada de linha · ${hrs(m.h)} em chamado${top.length ? ` · mais: ${top.map(([n, c]) => `${esc(n)} (${c})`).join(', ')}` : ''}</p></div>
+      <button type="button" class="btn btn-sec btn-sm" data-fechar-mes>${ic('x')} Fechar</button></div>
+    <div class="corr-tab-box"><table class="corr-tab corr-lista"><thead><tr><th>OM</th>${comMaquina ? '<th>Máquina</th>' : ''}<th>Assunto</th><th>Prioridade</th><th>Abertura</th><th>Fechamento</th><th>Tempo</th><th>Atendente</th></tr></thead><tbody>
+      ${doMes.map((o) => `<tr><td class="corr-os">${o.os}</td>${comMaquina ? `<td><a href="#c-${slugMaq(o.maquina)}">${esc(nomeMaq(o.maquina))}</a></td>` : ''}<td>${esc(o.assunto)}<small class="muted">${esc(o.sistema || '')}</small></td>
+        <td><span class="corr-pri corr-pri-${pl(o) ? 'pl' : /cr[ií]tico/i.test(o.prioridade || '') ? 'cr' : 'nm'}">${esc(o.prioridade || '–')}</span></td>
+        <td>${dataHoraBR(o.abertura)}</td><td>${fechado(o) ? dataHoraBR(o.ultimo_atend || o.ultima_mod) : '<span class="muted">em aberto</span>'}</td><td>${hrs(horasParada(o, agora))}</td><td>${esc(o.atendente || '–')}</td></tr>`).join('') || `<tr><td colspan="${comMaquina ? 8 : 7}" class="muted">Nenhum chamado neste mês.</td></tr>`}
+    </tbody></table></div>
+  </div>`;
+}
+
+// chamados agrupados por mês, do primeiro chamado até o mês atual (meses sem chamado entram com zero)
+function mesesDe(lista, h, agora) {
+  const meses = [], comData = lista.filter((c) => c.abertura), ehPL = (c) => /parada/i.test(c.prioridade || '');
+  if (!comData.length) return meses;
+  const por = {}; comData.forEach((c) => (por[diaDe(c.abertura).slice(0, 7)] ??= []).push(c));
+  const prim = Object.keys(por).sort()[0];
+  let a = +prim.slice(0, 4), mm = +prim.slice(5, 7); const af = +h.slice(0, 4), mf = +h.slice(5, 7);
+  while (a < af || (a === af && mm <= mf)) {
+    const k = `${a}-${String(mm).padStart(2, '0')}`, l = por[k] || [];
+    meses.push({ k, rot: MES_C[mm - 1] + (mm === 1 || !meses.length ? `/${String(a).slice(2)}` : ''), n: l.length, pl: l.filter(ehPL).length, h: l.reduce((s2, c) => s2 + horasParada(c, agora), 0) });
+    mm++; if (mm > 12) { mm = 1; a++; }
+  }
+  return meses;
+}
+
+function ligarMeses(el, st, desenhar) {
+  el.querySelectorAll('[data-mes]').forEach((b) => { b.onclick = () => {
+    st.mes = st.mes === b.dataset.mes ? null : b.dataset.mes; const y = scrollY; desenhar(); scrollTo(0, y);
+    if (st.mes) el.querySelector('.cm-painel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }; });
+  el.querySelectorAll('[data-fechar-mes]').forEach((b) => { b.onclick = () => { st.mes = null; const y = scrollY; desenhar(); scrollTo(0, y); }; });
 }

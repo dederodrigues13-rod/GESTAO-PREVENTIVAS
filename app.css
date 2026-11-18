@@ -902,3 +902,43 @@ body.claro .corr-pri-pl { color: #a8321a; } body.claro .corr-pri-cr { color: #8a
 body.claro .atend-av { background: #eceef1; color: #3a424c; }
 @media (max-width: 760px) { .atend-lista li { grid-template-columns: 26px 34px minmax(0, 1fr) 54px; } .atend-barra, .atend-t { display: none; } .atend-av { width: 34px; height: 34px; } }
 .atend-nome small { display: block; font-weight: 400; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+
+/* gráfico mês a mês (novo) */
+.lg-outros { background: #5c7a99 !important; } .lg-media { width: 14px !important; height: 0 !important; border-top: 2px dashed var(--yellow); border-radius: 0 !important; }
+.cm2 { display: grid; grid-template-columns: 34px minmax(0, 1fr); margin-top: 18px; }
+.cm2-eixo { position: relative; height: 240px; margin-top: 4px; }
+.cm2-eixo span { position: absolute; right: 8px; transform: translateY(50%); font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.cm2-rolar { overflow-x: auto; overflow-y: visible; padding-top: 4px; padding-bottom: 4px; }
+.cm2-plot { position: relative; height: 240px; display: grid; grid-template-columns: repeat(var(--n), minmax(38px, 1fr)); align-items: end; min-width: calc(var(--n) * 40px); margin-bottom: 26px; }
+.cm2-grade { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--border-soft); pointer-events: none; }
+.cm2-grade:first-child { border-top-color: var(--border-strong); }
+.cm2-media { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed var(--yellow); opacity: .65; pointer-events: none; z-index: 1; }
+.cm2-col { all: unset; box-sizing: border-box; position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: center; cursor: pointer; border-radius: 6px; z-index: 2; }
+.cm2-col::before { content: ''; position: absolute; inset: 0 3px; border-radius: 6px; background: transparent; transition: background .15s; }
+.cm2-col:hover::before, .cm2-col:focus-visible::before { background: rgba(255,255,255,.04); }
+.cm2-col:focus-visible { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.cm2-barra { position: relative; width: min(26px, 62%); display: flex; flex-direction: column; gap: 2px; min-height: 2px; transition: opacity .15s, transform .15s; }
+.cm2-barra i { display: block; min-height: 2px; }
+.cm2-barra i:first-of-type { border-radius: 4px 4px 0 0; }
+.cm2-o { background: #5c7a99; }
+.cm2-pl { background: var(--danger); }
+.cm2-col:hover .cm2-barra { transform: scaleX(1.12); }
+.cm2-val { position: absolute; bottom: 100%; left: 50%; transform: translate(-50%, -4px); font-family: var(--font-cond); font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
+.cm2-x { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.cm2.tem-sel .cm2-col:not(.sel) .cm2-barra { opacity: .45; }
+.cm2-col.sel .cm2-barra { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--yellow); border-radius: 4px 4px 0 0; }
+.cm2-col.sel .cm2-x { color: var(--yellow); font-weight: 700; }
+.cm2-dica { position: absolute; top: 4px; left: 50%; transform: translate(-50%, 4px); z-index: 5; min-width: 170px; display: grid; gap: 3px; padding: 10px 12px; border-radius: 8px;
+  background: #0f1215; border: 1px solid var(--border-strong); box-shadow: 0 10px 28px rgba(0,0,0,.45); font-size: 13px; color: var(--text); text-align: left; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s, transform .12s; }
+.cm2-dica b { font-size: 13.5px; }
+.cm2-dica i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.cm2-col:hover .cm2-dica, .cm2-col:focus-visible .cm2-dica { opacity: 1; transform: translate(-50%, 0); }
+.cm2-plot > .cm2-col:nth-of-type(-n+2) .cm2-dica { left: 0; transform: translate(0, 4px); }
+.cm2-plot > .cm2-col:nth-last-of-type(-n+2) .cm2-dica { left: auto; right: 0; transform: translate(0, 4px); }
+.cm2-plot > .cm2-col:nth-of-type(-n+2):hover .cm2-dica, .cm2-plot > .cm2-col:nth-last-of-type(-n+2):hover .cm2-dica { transform: none; }
+.cm-painel { margin-top: 18px; border: 1px solid var(--border); border-top: 3px solid var(--yellow); border-radius: 8px; padding: 16px 18px; background: var(--panel-2); animation: tv-entra .25s ease-out; }
+.cm-painel-topo { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.cm-painel h3 { margin: 2px 0 2px; font-family: var(--font-cond); font-size: 24px; }
+.cm-painel .eyebrow { margin: 0; color: var(--yellow); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+body.claro .cm2-dica { background: #fff; color: var(--text); box-shadow: 0 10px 28px rgba(0,0,0,.15); }
+.cm-painel .corr-tab td:nth-last-child(-n+4) { white-space: nowrap; } .cm-painel .corr-tab td:last-child { white-space: normal; }
